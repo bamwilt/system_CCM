@@ -1,0 +1,266 @@
+================================================================================
+ CCM - Sistema de Gestion de Instituciones Educativas
+ Guia de compilacion y ejecucion
+================================================================================
+
+RESUMEN RAPIDO
+--------------
+La app que SI funciona y SI compila es la de Node/TypeScript:  `client` +
+`server` + `db`.  Ya esta compilando, con 135 pruebas en verde y la API
+conectada a PostgreSQL.
+
+Detalle de todo esto abajo.
+
+
+--------------------------------------------------------------------------------
+ 1. QUE HAY EN EL REPOSITORIO
+--------------------------------------------------------------------------------
+
+  client/     Frontend  - React 19 + Vite 8 + TypeScript   (puerto 5173)
+  server/     Backend   - Express 5 + TypeScript + pg      (puerto 4000)
+  db/         Esquema, migraciones y datos de prueba de PostgreSQL
+  scripts/    instalar.sh y verificar.sh (ayuda)
+  ccm.sql     Volcado SQL original
+  sistemadb/  PROYECTO LEGACY en C# / Windows Forms -> no compila (ver seccion 5)
+
+  server/ y client/ son paquetes independientes: cada uno tiene su propio
+  package.json y su propio node_modules. No hay workspaces de npm.
+
+
+--------------------------------------------------------------------------------
+ 2. REQUISITOS
+--------------------------------------------------------------------------------
+
+  [X] Node.js 22        (ya instalado: v22.23.3)
+  [X] npm 10             (ya instalado: 10.9.9)
+  [X] PostgreSQL 18      (ya instalado y corriendo en 127.0.0.1:5432)
+
+  El archivo `.nvmrc` dice `22`. Si tu Node es distinto:
+
+      nvm use          # desde la raiz del proyecto
+
+  NO hace falta Docker: PostgreSQL corre nativo en esta maquina.
+
+
+--------------------------------------------------------------------------------
+ 3. COMPILAR / EJECUTAR
+--------------------------------------------------------------------------------
+
+  Todo se hace desde la RAIZ del proyecto.
+
+  --- 3.1 Dependencias (una sola vez, o cuando cambie un package.json) ---
+
+      ./scripts/instalar.sh
+
+      Equivale a `npm ci` dentro de server/ y dentro de client/.
+
+  --- 3.2 Base de datos ---
+
+      ./db/reset-db.sh              # borra, crea esquema (28 tablas) y carga datos
+      ./db/reset-db.sh --no-seed    # solo el esquema, sin datos de demostracion
+
+      El script lee las credenciales de `server/.env`. Ese archivo YA existe y
+      esta completo en esta maquina. Si lo necesitas regenerar:
+
+          cp server/.env.example server/.env
+          chmod 600 server/.env
+
+      Y completar dentro de server/.env:
+          DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME
+          JWT_SECRET   <- generar:  node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+
+      El rol de PostgreSQL necesita permiso CREATEDB para que reset-db.sh pueda
+      borrar y recrear la base. Si todavia no existe (una sola vez):
+
+          sudo -u postgres psql -c "CREATE ROLE <TU_USUARIO> LOGIN PASSWORD '<CLAVE>' CREATEDB;"
+
+      Ojo: `server/.env` esta en .gitignore. Nunca lo subas al repositorio.
+
+  --- 3.3 Compilar (build de produccion) ---
+
+      cd server && npm run build      # TypeScript -> server/dist/
+      cd client && npm run build      # Vite       -> client/dist/
+
+      Ojo: `cd server` una vez, compila, y `cd ../client` para el otro. Si los
+      dos comandos se pegan en el mismo `cd`, el segundo compila el proyecto
+      equivocado.
+
+      Builds ya hechos en esta maquina:
+          server/dist/   (app.js, index.js, routes/, lib/, ...)
+          client/dist/   (index.html + assets/)
+
+  --- 3.4 Levantar en desarrollo (lo normal) ---
+
+      Dos terminales, desde la raiz:
+
+      Terminal 1 - la API:
+          cd server && npm run dev        # http://localhost:4000
+
+      Terminal 2 - la interfaz:
+          cd client && npm run dev        # http://localhost:5173
+
+      Abrir http://localhost:5173 en el navegador.
+
+  --- 3.5 Correr el build de produccion ---
+
+      cd server && npm run build && npm start     # API en dist/
+      cd client && npm run build && npm run preview   # UI en http://localhost:4173
+
+  --- 3.6 Todo junto, en un solo comando de verificacion ---
+
+      ./scripts/verificar.sh              # tipos + lint + formato + pruebas + build + humo de la API
+      ./scripts/verificar.sh --rapido     # omite pruebas y build
+
+      El "humo de la API" solo se ejecuta si la API ya esta levantada en el
+      puerto 4000. Si no lo esta, avisa y sigue.
+
+
+--------------------------------------------------------------------------------
+ 4. ESTADO ACTUAL (verificado en esta maquina)
+--------------------------------------------------------------------------------
+
+  ./scripts/verificar.sh  -->  "Todo en orden."
+
+      Herramientas   node 22.23.3 coincide con .nvmrc
+      server         tipos OK | eslint OK | prettier OK | 64 pruebas OK | build OK
+      client         tipos OK | eslint OK | prettier OK | 71 pruebas OK | build OK
+      API            respondiendo en :4000
+                    login con la cuenta del seed OK
+                    los 8 listados (estudiantes, clientes, docentes, asignaturas,
+                    grupos, matriculas, notas, pagos) devuelven 200
+
+  Base de datos: 28 tablas, con datos de demostracion cargados.
+  API            arranca y conecta (log: "Base -> sistemadb @ 127.0.0.1:5432 (conectada)")
+  Vite           escucha en 127.0.0.1:5173
+
+  Conclusion: no falta NADA para compilar y correr la app web. Todo esta en su
+  sitio.
+
+
+--------------------------------------------------------------------------------
+ 5. LO QUE NO COMPILA:  la carpeta  sistemadb/   (C# / Windows Forms)
+--------------------------------------------------------------------------------
+
+  `dotnet build sistemadb.sln` falla, y no es un detalle de esta maquina: son dos
+  problemas reales y estan documentados abajo.
+
+  --- Problema 1: falta el proyecto Entities ---
+
+      error MSB3202: No se encuentra el archivo del proyecto
+      ".../sistemadb/Entities/Entities.csproj"
+
+      El .sln lista cuatro proyectos (Presentation, DataAccess, Business,
+      Entities) pero la carpeta Entities/ no existe en el repositorio. Los tres
+      .csproj que si existen (Business, DataAccess, Presentation) NO lo
+      referencian, asi que la entrada de Entities en el .sln esta colgada y
+      se puede quitar del .sln.
+
+  --- Problema 2: Windows Forms no existe en Linux ---
+
+      Los tres proyectos declaran:
+
+          <TargetFramework>net8.0-windows</TargetFramework>
+          <UseWindowsForms>true</UseWindowsForms>
+
+      Eso necesita el "Windows Desktop SDK", que Microsoft solo distribuye para
+      Windows. Aun con el problema 1 solucionado, en Linux queda:
+
+          error MSB4019: No se encontro el proyecto
+          "Microsoft.NET.Sdk.WindowsDesktop.targets"
+
+      Esto se comprobo: se copio la solucion a /tmp, se quito la entrada de
+      Entities del .sln y se intento compilar. Sigue fallando con MSB4019 en los
+      tres proyectos.
+
+  --- Problema 3 (de fondo): otra base de datos ---
+
+      DataAccess usa Microsoft.EntityFrameworkCore.SqlServer, mientras que la
+      app nueva (client/ + server/ + db/) usa PostgreSQL. Aunque se corrigiera
+      lo de WinForms, este proyecto apunta a otra arquitectura y otra base.
+
+  --- Conclusion sobre sistemadb/ ---
+
+      No es recuperable en esta maquina Linux, y no hace falta: es el proyecto
+      ORIGINAL en WinForms, y la carpeta client/ + server/ es su reescritura
+      (misma base de datos, 28 tablas; la API y la UI nuevas).
+      Sirve como referencia de la migracion, no como codigo a compilar.
+
+      Para compilarlo haria falta, ademas de arreglar el .sln:
+        - una maquina Windows
+        - .NET SDK 8
+        - Visual Studio 2022 (17.13 o superior, segun el .sln)
+        - el proyecto Entities, que hay que recuperar del repositorio original
+        - una instancia de SQL Server para las pruebas
+
+
+--------------------------------------------------------------------------------
+ 6. COMO FUNCIONA (por si hay que tocar algo)
+--------------------------------------------------------------------------------
+
+  El frontend NO tiene URL de API propia: pide rutas relativas `/api/...`
+  (client/src/api/cliente.ts, `const BASE = '/api'`). En desarrollo, el proxy de
+  Vite (client/vite.config.ts) las reenvia a http://localhost:4000. Asi no hay
+  CORS ni URLs distintas entre desarrollo y produccion.
+
+  El destino del proxy sale de VITE_API_TARGET en client/.env. Ese archivo NO
+  es necesario: vite.config.ts ya tiene http://localhost:4000 como valor por
+  defecto, que es lo correcto para esta maquina. Si quisieras apuntar a otro
+  lado:
+
+      cp client/.env.example client/.env
+
+  Rutas de la API (todas bajo /api):
+
+      /api/health                      publica (unica sin token)
+      /api/auth                        login, emite el JWT
+      /api/dashboard                   resumen del panel
+      /api/catalogos                   catalogos para los formularios
+      /api/estudiantes                 requiere token
+      /api/clientes                    requiere token
+      /api/docentes                    requiere token
+      /api/asignaturas                 requiere token
+      /api/grupos                      requiere token
+      /api/matriculas                  requiere token
+      /api/notas                       requiere token
+      /api/pagos                       requiere token
+
+  Los ocho modulos de datos comparten la misma logica CRUD (listado paginado con
+  busqueda, filtros y orden; alta, edicion y borrado protegido), definida una
+  sola vez en server/src/lib/crud.ts y parametrizada por modulo en
+  server/src/routes/modulos.routes.ts.
+
+  Usuario de demostracion (viene de db/seed.sql):
+
+      email:    admin@ccm.edu.do
+      password: Admin123!
+
+  El JWT dura 8 horas (JWT_EXPIRES_IN en server/.env).
+
+
+--------------------------------------------------------------------------------
+ 7. DETALLES MENORES QUE VALE LA PENA ARREGLAR
+--------------------------------------------------------------------------------
+
+  - .gitignore NO ignora `dist/`.(server/dist/ y client/dist/ ya estan
+    compilados en el arbol.) Conviene agregar `dist/` a .gitignore para no
+    subir build.
+
+  - client/.env.example existe pero client/.env no hace falta crearlo (ver 6).
+
+  - Hay un detalle heredado del esquema original: la columna se llama
+    `categorioa_docente` (con la "a" corrida). La API lo esconde y expone
+    `categoria_docente` correctamente; si se toca el SQL directamente, hay que
+    tener el typo en cuenta.
+
+
+--------------------------------------------------------------------------------
+ 8. RESUMEN EN 5 LINEAS
+--------------------------------------------------------------------------------
+
+  1. ./scripts/instalar.sh          dependencias de server/ y client/
+  2. ./db/reset-db.sh               base de datos PostgreSQL con datos de prueba
+  3. cd server && npm run dev       API en http://localhost:4000
+  4. cd client && npm run dev       interfaz en http://localhost:5173
+  5. ./scripts/verificar.sh         comprobar que todo sigue bien
+
+================================================================================
