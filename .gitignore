@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+coverage/
+.tmp/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Database
+*.sqlite
+*.db
+
+# Minion runtime state
+.minion/
+
+# Rollback snapshots
+.tmp/rollback/
+/frontend/vite.config.d.ts
