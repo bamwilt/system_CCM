@@ -4,7 +4,7 @@ Actualización: 2026-11-06. Instrucción activa: `Prompt_Maestro_Desarrollo_SGPM
 
 ## Resultado actual
 
-**FASE 0 CERRADA CON RESERVAS (cierre documental, 2026-11-07); FASES 1 Y 2 COMPLETADAS; FASE 3 COMPLETADA CON RESERVAS.** Actualización documental verificada (ronda 2); fase 0 cerrada con reservas por decisiones y fuentes institucionales pendientes. Existe aplicación SGPM implementada con backend Express/TypeScript, frontend React/Vite/TypeScript, PostgreSQL 16, migraciones versionadas y 154 pruebas de autenticación/autorización pasando. No se asumió aceptación institucional ni aprobación de criterios oficiales.
+**FASE 0 CERRADA CON RESERVAS; FASES 1, 2 Y 3 COMPLETADAS; FASE 4 COMPLETADA CON RESERVAS.** Actualización documental verificada (ronda 2); fase 0 cerrada con reservas por decisiones y fuentes institucionales pendientes. Existe aplicación SGPM implementada con backend Express/TypeScript, frontend React/Vite/TypeScript, PostgreSQL 16, migraciones versionadas y 154 pruebas de autenticación/autorización pasando. No se asumió aceptación institucional ni aprobación de criterios oficiales.
 
 ## Cierre de fase 0 (documental, con reservas)
 
@@ -106,6 +106,28 @@ La evidencia de controles mecánicos de los Markdown y su resultado se registra 
 | 2026-11-08 | Fase 3 implementada y verificada | 154 pruebas PASS, typecheck 0 errores, migración 002 aplicada dos veces, restricciones SQL verificadas |
 | 2026-11-08 | Corrección de concurrencia y presupuesto global | Advisory lock 4315003, re-lectura de credenciales bajo lock, IP antes de global, validación Origin/Content-Type previa |
 | 2026-11-08 | Documentación de fase 3 | docs/INFORME_FASE_3.md, docs/ESTADO_DESARROLLO.md actualizados |
+
+
+
+## Fase 4 — Gestión de estudiantes y responsables (completada con reservas)
+
+**Resultado:** implementación técnica provisional entregada y verificada contra PostgreSQL 16 real.
+
+**Endpoints implementados:**
+- GET/POST /api/estudiantes, GET/PATCH /api/estudiantes/:id, PATCH /api/estudiantes/:id/desactivar
+- GET/POST /api/tutores, GET/PATCH /api/tutores/:id, PATCH /api/tutores/:id/desactivar
+- POST /api/tutores/:id/estudiantes (asociar estudiante a tutor)
+
+**Pruebas:** 14 pruebas de API contra PostgreSQL 16 real. Typecheck 0 errores. Regresión fase 3: 154 pruebas pasando.
+
+**Reservas:** matriz de roles institucional pendiente (DEC-03), interfaz de usuario pendiente (fase 9), sin aceptación institucional.
+
+## Registro de sesión (actualizado)
+
+| Fecha | Acción | Evidencia / estado |
+|---|---|---|
+| 2026-11-08 | Fase 4 implementada | 14 pruebas API, typecheck 0, migraciones 003/004 aplicadas |
+| 2026-11-08 | Documentación de fase 4 | docs/INFORME_FASE_4.md, docs/ESTADO_DESARROLLO.md actualizados |
 
 ## Próxima acción
 

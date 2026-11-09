@@ -6,6 +6,9 @@ import { AppError } from '../middleware/errorHandler';
 export const AUTH_PERMISSIONS = {
   USERS_MANAGE: 'auth:users:manage',
   ROLES_MANAGE: 'auth:roles:manage',
+  ESTUDIANTES_MANAGE: 'estudiantes:manage',
+  ESTUDIANTES_READ: 'estudiantes:read',
+  TUTORES_MANAGE: 'tutores:manage',
 } as const;
 
 export type AuthPermission = (typeof AUTH_PERMISSIONS)[keyof typeof AUTH_PERMISSIONS];
@@ -13,6 +16,9 @@ export type AuthPermission = (typeof AUTH_PERMISSIONS)[keyof typeof AUTH_PERMISS
 export const AUTH_PERMISSION_CODES: readonly AuthPermission[] = [
   AUTH_PERMISSIONS.USERS_MANAGE,
   AUTH_PERMISSIONS.ROLES_MANAGE,
+  AUTH_PERMISSIONS.ESTUDIANTES_MANAGE,
+  AUTH_PERMISSIONS.ESTUDIANTES_READ,
+  AUTH_PERMISSIONS.TUTORES_MANAGE,
 ];
 
 export const AUTH_MANAGE_PERMISSIONS = AUTH_PERMISSION_CODES;
