@@ -4,7 +4,7 @@ Actualización: 2026-11-06. Instrucción activa: `Prompt_Maestro_Desarrollo_SGPM
 
 ## Resultado actual
 
-**FASE 0 CERRADA CON RESERVAS (cierre documental, 2026-11-07) — entregables preliminares generados; decisiones y fuentes institucionales pendientes registradas como reservas.** Actualización documental verificada (ronda 2); fase 0 cerrada con reservas por decisiones y fuentes institucionales pendientes; FASE 1 NO INICIADA. No se ha iniciado fase 1. No existe aplicación SGPM implementada en esta carpeta, no se crearon migraciones ni se instalaron dependencias. No se ejecutaron pruebas del producto ni se asumió aceptación institucional.
+**FASE 0 CERRADA CON RESERVAS (cierre documental, 2026-11-07); FASES 1 Y 2 COMPLETADAS; FASE 3 COMPLETADA CON RESERVAS.** Actualización documental verificada (ronda 2); fase 0 cerrada con reservas por decisiones y fuentes institucionales pendientes. Existe aplicación SGPM implementada con backend Express/TypeScript, frontend React/Vite/TypeScript, PostgreSQL 16, migraciones versionadas y 154 pruebas de autenticación/autorización pasando. No se asumió aceptación institucional ni aprobación de criterios oficiales.
 
 ## Cierre de fase 0 (documental, con reservas)
 
@@ -81,6 +81,31 @@ Actualización: 2026-11-06. Instrucción activa: `Prompt_Maestro_Desarrollo_SGPM
 Se extrajo texto de los 12 DOCX y XML de las 18 hojas del XLSX; el texto de los V2 independientes se revisó, D01 se consultó solo en la sección de diseño. Se revisaron visualmente las cuatro imágenes de D05. El resto de imágenes, notas/campos y revisión visual de Office siguen pendientes; no se afirma lectura exhaustiva de D01 ni de todo el expediente.
 
 La evidencia de controles mecánicos de los Markdown y su resultado se registra en `INFORME_FASE_0.md`. La verificación de la ronda 2 (`sgpm-fase0-registro-evidencia-01`) concluyó con mecánica **PASS** (exit 0) e integración documental **PASS** (exit 0); el resto de imágenes, notas/campos y revisión visual de Office sigue pendiente. Ninguno acredita funcionamiento del SGPM. El índice de código no contiene este proyecto; se usaron herramientas locales para documentos. Esta carpeta no era un repositorio Git al inicio y no se inicializó en fase 0.
+
+
+
+## Fase 3 — Autenticación, autorización y seguridad (completada con reservas)
+
+**Resultado:** implementación técnica provisional entregada y verificada contra PostgreSQL 16 real (socket Unix, sin TCP).
+
+**Entregables verificados:**
+- Configuración estricta de entorno (sin secretos por defecto en producción).
+- Migración 002 aditiva: sesiones opacas (hash SHA-256), límites de intento persistentes, concesiones auth separadas del seed.
+- Login/logout/me/recovery(503): sesión revocable, cookie HttpOnly/SameSite/Secure, CSRF, bcrypt coste 12+, límite 5 fallos/15 min.
+- Gestión protegida de usuarios y roles con permisos técnicos denegación-por-defecto, advisory lock global, revocación de sesiones, auditoría sin PII.
+- Bootstrap de desarrollo opt-in (credenciales por variable de entorno, nunca argv).
+
+**Pruebas:** 154 pruebas pasando (configuración, criptografía, migración, sesiones, API auth, autorización, concurrencia). Typecheck de src y tests: 0 errores.
+
+**Reservas:** matriz de roles institucional pendiente (DEC-03), contrato de sesión definitivo pendiente (DEC-14), recuperación de correo sin entrega configurada, interfaz de usuario pendiente (fase 9), sin aceptación institucional.
+
+## Registro de sesión (actualizado)
+
+| Fecha | Acción | Evidencia / estado |
+|---|---|---|
+| 2026-11-08 | Fase 3 implementada y verificada | 154 pruebas PASS, typecheck 0 errores, migración 002 aplicada dos veces, restricciones SQL verificadas |
+| 2026-11-08 | Corrección de concurrencia y presupuesto global | Advisory lock 4315003, re-lectura de credenciales bajo lock, IP antes de global, validación Origin/Content-Type previa |
+| 2026-11-08 | Documentación de fase 3 | docs/INFORME_FASE_3.md, docs/ESTADO_DESARROLLO.md actualizados |
 
 ## Próxima acción
 

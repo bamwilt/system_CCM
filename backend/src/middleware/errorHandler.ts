@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { redactError } from '../utils/redact';
 
 export class AppError extends Error {
   statusCode: number;
@@ -18,6 +19,29 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ): void {
+  const body = err as { type?: string };
+
+  if (body && body.type === 'entity.parse.failed') {
+    res.status(400).json({
+      error: { code: 'BAD_REQUEST', message: 'Invalid request body' },
+    });
+    return;
+  }
+
+  if (body && body.type === 'entity.too.large') {
+    res.status(413).json({
+      error: { code: 'PAYLOAD_TOO_LARGE', message: 'Payload too large' },
+    });
+    return;
+  }
+
+  if (err instanceof SyntaxError) {
+    res.status(400).json({
+      error: { code: 'BAD_REQUEST', message: 'Invalid request body' },
+    });
+    return;
+  }
+
   if (err instanceof AppError) {
     res.status(err.statusCode).json({
       error: {
@@ -28,7 +52,7 @@ export function errorHandler(
     return;
   }
 
-  console.error('Unhandled error:', err);
+  redactError(err);
   res.status(500).json({
     error: {
       code: 'INTERNAL_ERROR',
