@@ -1,10 +1,10 @@
 # Estado de desarrollo del SGPM
 
-Actualización: 2026-11-06. Instrucción activa: `Prompt_Maestro_Desarrollo_SGPM_v2.md`, exclusivamente FASE 0.
+Actualización: 2026-11-10. Instrucción activa: `Prompt_Maestro_Desarrollo_SGPM_v2.md`. La última fase ejecutada es la **FASE 5 (Gestión de matrículas)**, cerrada técnicamente a nivel local con reservas en el lote `sgpm-fase5-cierre-v3` por autorización explícita del usuario; esa autorización sustituyó el congelamiento previo de alcance y **no** autoriza commit ni push ni el inicio de la FASE 6. El texto «exclusivamente FASE 0» de versiones anteriores quedó históricamente superado: las fases 1 a 5 se implementaron por autorizaciones sucesivas.
 
 ## Resultado actual
 
-**FASE 0 CERRADA CON RESERVAS; FASES 1, 2 Y 3 COMPLETADAS; FASE 4 COMPLETADA CON RESERVAS.** Actualización documental verificada (ronda 2); fase 0 cerrada con reservas por decisiones y fuentes institucionales pendientes. Existe aplicación SGPM implementada con backend Express/TypeScript, frontend React/Vite/TypeScript, PostgreSQL 16, migraciones versionadas y 154 pruebas de autenticación/autorización pasando. No se asumió aceptación institucional ni aprobación de criterios oficiales.
+**FASE 0 CERRADA CON RESERVAS; FASES 1, 2 Y 3 COMPLETADAS; FASE 4 COMPLETADA CON RESERVAS; FASE 5 CERRADA TÉCNICAMENTE A NIVEL LOCAL, CON RESERVAS.** Actualización documental verificada (ronda 2); fase 0 cerrada con reservas por decisiones y fuentes institucionales pendientes. Existe aplicación SGPM implementada con backend Express/TypeScript, frontend React/Vite/TypeScript, PostgreSQL 16, migraciones versionadas (001..008) y suite de pruebas medida en **218 pruebas PASS / 0 FAIL / 0 SKIP en 11 archivos, exit 0**. No se asumió aceptación institucional ni aprobación de criterios oficiales.
 
 ## Cierre de fase 0 (documental, con reservas)
 
@@ -129,9 +129,33 @@ La evidencia de controles mecánicos de los Markdown y su resultado se registra 
 | 2026-11-08 | Fase 4 implementada | 14 pruebas API, typecheck 0, migraciones 003/004 aplicadas |
 | 2026-11-08 | Documentación de fase 4 | docs/INFORME_FASE_4.md, docs/ESTADO_DESARROLLO.md actualizados |
 
+## Fase 5 — Gestión de matrículas (cerrada técnicamente a nivel local, con reservas)
+
+**Resultado:** implementación técnica provisional entregada y verificada contra PostgreSQL 16 real (socket Unix, sin TCP) en el lote `sgpm-fase5-cierre-v3`. Cierre técnico local; **no** se acredita aceptación institucional.
+
+**Funcionalidades del Prompt Maestro implementadas:**
+- Registro de matrícula (`POST /api/matriculas`) en transacción única: `BEGIN` → advisory lock `4315003` → revalidación de actor/sesión → servicio → `COMMIT`, con el mismo `PoolClient`.
+- Asignación de año académico (año activo y rango de fechas) y de grado (pertenencia al año).
+- Aplicación de tarifa activa del mismo año; *snapshot* `tarifa_id` + `moneda` en `planes_pago`; `GET /:id/plan-pago` expone `tarifa_id`.
+- Generación de obligaciones: plan + N cuotas en la misma transacción, importes `NUMERIC` como cadenas exactas (sin aritmética flotante, sin división ni redondeo).
+- Consulta de historial: `GET /api/matriculas/:id/historial` (nuevo; solo lectura, `matriculas:read`, filtro `entidad='matriculas' AND entidad_id=$1`, orden ascendente).
+- Control de estados ACTIVA/DESACTIVADA/COMPLETADA; `PATCH /:id/desactivar` conserva las cuotas.
+- Validación de duplicados: 409 con `UNIQUE(estudiante_id, anio_lectivo_id)`.
+- Regla crítica del PM «no generar obligaciones duplicadas»: `idempotency_key` opcional de aplicación (replay 200 con la matrícula y plan existentes; otra identidad 409) más índice único parcial `uq_matriculas_idempotencia_actor` sobre (clave, actor).
+
+**Huecos cerrados en el lote:** `catch` vacío en el *rollback* de `matriculas.routes.ts`; `plan-pago` sin `tarifa_id`; contrato engañoso `tutorId` en `POST /api/tutores/:id/estudiantes` (ahora estricto sobre `estudiante_id`, cambio deliberadamente rompedor en un endpoint nunca liberado); ausencia de endpoint de historial; ausencia de idempotencia de aplicación; códigos de permiso del *seed* divergentes; defaults financieros de producción eliminados (`planes_pago.total_cuotas` y `tarifas.moneda` quedan `NOT NULL` sin default); `npm test` no reproducible (ahora serial por defecto, `test:parallel` conservado, sin rutas absolutas de máquina).
+
+**Frontera de autorización cerrada con evidencia:** el código de FASE 4 exigía `estudiantes:manage` **y** `auth:roles:manage` en `POST /api/estudiantes` y `POST /api/tutores`; restaurar la versión de `HEAD` hizo fallar **11 pruebas con 403**, lo que acredita que era un defecto de FASE 4 que dejaba los endpoints inutilizables. Contrato vigente fijado con las pruebas RC-01/RC-01b. La clave de idempotencia queda acotada al actor creador (migración 008, sin `FOREIGN KEY` por diseño) y la prueba SEC-02 verifica el aislamiento entre actores.
+
+**Pruebas:** suite completa serial **218 tests, 218 PASS / 0 FAIL / 0 SKIP, 11 archivos, exit 0** (línea base previa: 204). Typecheck de `src` exit 0; typecheck estricto de `src` + tests exit 0. Migraciones por CLI: instalación limpia 001..008, reaplicación, *upgrade* desde 001..007 preservando filas legacy y restauración, los **cuatro con exit 0**.
+
+**Reservas:** matriz de roles institucional pendiente (DEC-03; `auth_role_permissions` con 0 filas, nada concedido automáticamente); moneda/tarifas/redondeo y mora/vencimiento pendientes (DEC-04/DEC-05); FIFO (DEC-06); glosario tutor/matrícula (DEC-11); decisiones técnicas nuevas registradas como DEC-17 (idempotencia de aplicación), DEC-18 (alcance del historial) y DEC-19 (convención de códigos de permiso en el *seed*). Deuda técnica no cerrada: `zod@3.25.76` requiere salto mayor a v4; `npm run lint` roto por falta de configuración *flat* de ESLint; `bootstrap-auth.ts` con dos `.catch(() => undefined)` y `seed.ts` imprime el error crudo; el *seed* duplica sus 3 filas de ejemplo de `tarifas` en cada reejecución. Interfaz de usuario pendiente (fase 9). Sin aceptación institucional.
+
 ## Próxima acción
 
 Con las preguntas 1 y 2 de cierre respondidas por el solicitante (motor PostgreSQL; desarrollo NUEVO), completar fuentes/revisión documental, ratificar políticas financieras y permisos, registrar aprobación con alcance real. La sesión de corrección documental `sgpm-fase0-correccion-01` (intento runtime1, ronda documental 2/2) dejó corregidos los defectos de diseño detectados en la ronda 1; la tarea `sgpm-fase0-registro-evidencia-01` registró la evidencia de la verificación ronda 2 con resultado **PASS** (mecánica e integración documental). Solo después del cierre pertinente y de autorización explícita se prepara fase 1. Si se permite trabajo independiente con pendientes, registrar cuáles y no implementar la parte bloqueada.
+
+**Estado vigente (2026-11-10):** la FASE 5 quedó cerrada técnicamente a nivel local con reservas (218 pruebas PASS, exit 0). Pendiente para el cierre institucional: DEC-03 (matriz de roles), DEC-04/DEC-05 (vencimiento, mora, moneda, tarifas, redondeo), DEC-06 (FIFO), DEC-11 (glosario), DEC-17/18/19 y la deuda técnica registrada. La FASE 6 no se inició; el PM exige informe y autorización explícita antes de comenzar otra fase principal, y sus reglas monetarias y FIFO siguen sin ratificar.
 
 ## Registro de sesión
 
@@ -139,4 +163,6 @@ Con las preguntas 1 y 2 de cierre respondidas por el solicitante (motor PostgreS
 |---|---|---|
 | 2026-11-06 | Inventario, consolidación y trazabilidad inicial. | Markdown de fase 0; originales preservados. |
 | 2026-11-06 | Detección de duplicado y contradicciones. | SHA-256 D06=D11; DEC-01–16. |
-| 2026-11-06 | Implementación, pruebas de producto y despliegue. | NO INICIADOS / NO EJECUTADOS. |
+| 2026-11-06 | Implementación, pruebas de producto y despliegue. | NO INICIADOS / NO EJECUTADOS (histórico de fase 0; superado por las fases 1–5). |
+| 2026-11-08 | Fases 3 y 4 implementadas y verificadas. | 154 pruebas fase 3; 14 pruebas API fase 4; typecheck 0 errores. |
+| 2026-11-10 | Fase 5 cerrada técnicamente (`sgpm-fase5-cierre-v3`). | 218 pruebas PASS / 0 FAIL / 0 SKIP, 11 archivos, exit 0; typechecks src y src+tests exit 0; 4 pruebas CLI de migración exit 0; docs/INFORME_FASE_5.md creado. Sin commit ni push. |

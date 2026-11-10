@@ -1,7 +1,8 @@
 import { vi } from 'vitest';
-vi.hoisted(() => {
+vi.hoisted(async () => {
+  const { TEST_SOCKET_DIR } = await import('./testEnv.js');
   process.env.NODE_ENV = 'test';
-  process.env.DB_HOST = '/home/bryan/Documentos/clase/DOCUMENTS/proyecto final/.tmp/test-artifacts/sgpm-fase3-db';
+  process.env.DB_HOST = TEST_SOCKET_DIR;
   process.env.DB_PORT = '55433';
   process.env.DB_NAME = 'sgpm_auth_test';
   process.env.DB_USER = 'sgpm_test';

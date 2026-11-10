@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS tarifas (
     id SERIAL PRIMARY KEY,
     concepto VARCHAR(100) NOT NULL,
     monto NUMERIC(12, 2) NOT NULL,
-    moneda VARCHAR(3) NOT NULL DEFAULT 'NIO',
+    moneda VARCHAR(3) NOT NULL,
     anio_lectivo_id INTEGER REFERENCES anio_lectivo(id),
     activo BOOLEAN NOT NULL DEFAULT TRUE,
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -120,14 +120,16 @@ CREATE TABLE IF NOT EXISTS matriculas (
     observaciones TEXT,
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    idempotency_key VARCHAR(255),
+    creado_por_usuario_id INTEGER,
     UNIQUE (estudiante_id, anio_lectivo_id)
 );
 
--- Plan de pagos (10 cuotas)
+-- Plan de pagos
 CREATE TABLE IF NOT EXISTS planes_pago (
     id SERIAL PRIMARY KEY,
     matricula_id INTEGER NOT NULL REFERENCES matriculas(id) ON DELETE CASCADE,
-    total_cuotas INTEGER NOT NULL DEFAULT 10,
+    total_cuotas INTEGER NOT NULL,
     monto_cuota NUMERIC(12, 2) NOT NULL,
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

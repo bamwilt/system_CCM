@@ -9,11 +9,15 @@ INSERT INTO roles (nombre, descripcion) VALUES
 ON CONFLICT (nombre) DO NOTHING;
 
 -- Permisos basicos
+-- Los codigos de los dominios ya implementados deben coincidir con
+-- backend/src/authorization/permissions.ts (AUTH_PERMISSIONS).
+-- Los codigos de pagos/reportes/auditoria (fases futuras) se conservan tal cual.
 INSERT INTO permisos (codigo, descripcion) VALUES
-    ('estudiantes:leer', 'Leer estudiantes'),
-    ('estudiantes:escribir', 'Crear/editar estudiantes'),
-    ('matriculas:leer', 'Leer matriculas'),
-    ('matriculas:escribir', 'Crear/editar matriculas'),
+    ('estudiantes:read', 'Leer listado y detalle de estudiantes'),
+    ('estudiantes:manage', 'Gestionar estudiantes (crear, editar, desactivar)'),
+    ('tutores:manage', 'Gestionar tutores/responsables (crear, editar, desactivar, asociar)'),
+    ('matriculas:read', 'Leer listado y detalle de matriculas'),
+    ('matriculas:manage', 'Gestionar matriculas (crear, editar, desactivar)'),
     ('pagos:leer', 'Leer pagos'),
     ('pagos:escribir', 'Registrar pagos'),
     ('reportes:leer', 'Leer reportes'),

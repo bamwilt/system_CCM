@@ -1,6 +1,7 @@
 import { getPool, closePool } from '../config/database';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
+import { redactError } from '../utils/redact';
 
 async function runMigrations(): Promise<void> {
   const pool = getPool();
@@ -47,8 +48,16 @@ async function runMigrations(): Promise<void> {
 
     console.log('Migrations complete.');
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
-    console.error('Migration failed:', error);
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      const sanitized = redactError(rollbackError);
+      console.error(
+        `Migration rollback failed (${sanitized.name}); the open transaction could not be rolled back.`
+      );
+    }
+    const sanitizedError = redactError(error);
+    console.error(`Migration failed (${sanitizedError.name}).`);
     process.exit(1);
   } finally {
     client.release();

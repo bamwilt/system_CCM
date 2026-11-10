@@ -63,6 +63,7 @@ function perfilSeguro(tutor: {
   documento_identidad: string;
   telefono: string | null;
   email: string | null;
+  parentesco: string | null;
   activo: boolean;
 }) {
   return {
@@ -72,6 +73,7 @@ function perfilSeguro(tutor: {
     documento_identidad: tutor.documento_identidad,
     telefono: tutor.telefono,
     email: tutor.email,
+    parentesco: tutor.parentesco,
     activo: tutor.activo,
   };
 }
@@ -94,8 +96,9 @@ router.get(
         documento_identidad: string;
         telefono: string | null;
         email: string | null;
+        parentesco: string | null;
         activo: boolean;
-      }>('SELECT id, nombres, apellidos, documento_identidad, telefono, email, activo FROM tutores ORDER BY apellidos, nombres LIMIT $1 OFFSET $2', [limite, compensar]);
+      }>('SELECT id, nombres, apellidos, documento_identidad, telefono, email, parentesco, activo FROM tutores ORDER BY apellidos, nombres LIMIT $1 OFFSET $2', [limite, compensar]);
 
       const tutores = result.rows.map((row) => ({
         id: row.id,
@@ -104,6 +107,7 @@ router.get(
         documento_identidad: row.documento_identidad,
         telefono: row.telefono,
         email: row.email,
+        parentesco: row.parentesco,
         activo: row.activo,
       }));
 
@@ -143,7 +147,7 @@ router.get(
 router.post(
   '/',
   requireAuth,
-  requirePermission([AUTH_PERMISSIONS.TUTORES_MANAGE, AUTH_PERMISSIONS.ROLES_MANAGE]),
+  requirePermission(AUTH_PERMISSIONS.TUTORES_MANAGE),
   validateCsrf,
   async (req: Request, res: Response, next: NextFunction) => {
     const auth = (req as AuthenticatedRequest).auth;
@@ -396,7 +400,10 @@ router.post(
         throw new AppError('Tutor no encontrado', 404, 'NOT_FOUND');
       }
 
-      const estudianteResult = await client.query<{ id: number }>('SELECT id FROM estudiantes WHERE id = $1', [parsed.data.tutorId]);
+      // `estudiante_id` es el id del estudiante; el id del tutor viene de :id
+      const estudianteId = parsed.data.estudiante_id;
+
+      const estudianteResult = await client.query<{ id: number }>('SELECT id FROM estudiantes WHERE id = $1', [estudianteId]);
       if (estudianteResult.rows.length === 0) {
         throw new AppError('Estudiante no encontrado', 404, 'NOT_FOUND');
       }
@@ -405,19 +412,19 @@ router.post(
       if (parsed.data.es_principal) {
         await client.query(
           'UPDATE estudiante_tutor SET es_principal = FALSE WHERE estudiante_id = $1 AND es_principal = TRUE',
-          [parsed.data.tutorId]
+          [estudianteId]
         );
       }
 
-      await tutorRepo.asociarEstudiante(id, parsed.data.tutorId, parsed.data.es_principal, client);
+      await tutorRepo.asociarEstudiante(id, estudianteId, parsed.data.es_principal, client);
 
       await tutorRepo.registrarAuditoria(
         {
           usuarioId: auth.userId,
           accion: 'tutor_estudiante_asociar',
           entidad: 'estudiante_tutor',
-          entidadId: parsed.data.tutorId,
-          detalle: { resultado: 'exito', tutor_id: id, es_principal: parsed.data.es_principal },
+          entidadId: estudianteId,
+          detalle: { resultado: 'exito', tutor_id: id, estudiante_id: estudianteId, es_principal: parsed.data.es_principal },
         },
         client
       );
@@ -430,6 +437,71 @@ router.post(
       next(toHttpError(error));
     } finally {
       client.release();
+    }
+  }
+);
+
+// GET /api/tutores/:id/estudiantes — estudiantes asociados al tutor
+router.get(
+  '/:id/estudiantes',
+  requireAuth,
+  requirePermission(AUTH_PERMISSIONS.TUTORES_MANAGE),
+  async (req: Request, res: Response, next: NextFunction) => {
+    const auth = (req as AuthenticatedRequest).auth;
+    if (!auth) {
+      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'No autorizado' } });
+      return;
+    }
+
+    const id = parsePositiveId(getParamString(req.params.id));
+    if (id === null) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Recurso no encontrado' } });
+      return;
+    }
+
+    try {
+      const client = await getPool().connect();
+      try {
+        const actor = await getCurrentAuthContext(auth.userId, client);
+        if (!actor) {
+          throw new AppError('No autorizado', 401, 'UNAUTHORIZED');
+        }
+        if (!actor.grants.includes(AUTH_PERMISSIONS.TUTORES_MANAGE)) {
+          throw new AppError('Prohibido', 403, 'FORBIDDEN');
+        }
+
+        await assertActiveSession(client, hashToken(auth.sessionToken), auth.userId);
+
+        const tutor = await client.query<{ id: number }>('SELECT id FROM tutores WHERE id = $1', [id]);
+        if (tutor.rows.length === 0) {
+          throw new AppError('Tutor no encontrado', 404, 'NOT_FOUND');
+        }
+
+        const result = await client.query<{
+          id: number;
+          nombres: string;
+          apellidos: string;
+        }>(
+          `SELECT e.id, e.nombres, e.apellidos
+           FROM estudiantes e
+           INNER JOIN estudiante_tutor et ON et.estudiante_id = e.id
+           WHERE et.tutor_id = $1
+           ORDER BY e.apellidos, e.nombres`,
+          [id]
+        );
+
+        res.status(200).json({
+          estudiantes: result.rows.map((row) => ({
+            id: row.id,
+            nombres: row.nombres,
+            apellidos: row.apellidos,
+          })),
+        });
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      next(toHttpError(error));
     }
   }
 );

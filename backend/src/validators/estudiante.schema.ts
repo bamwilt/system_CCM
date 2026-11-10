@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-export const createEstudianteSchema = z.object({
+export const createEstudianteSchema = z
+  .object({
   nombres: z.string().trim().min(2, 'El nombre es requerido').max(100),
   apellidos: z.string().trim().min(2, 'El apellido es requerido').max(100),
   fecha_nacimiento: z.string().datetime({ offset: true }).optional().nullable(),
@@ -10,7 +11,8 @@ export const createEstudianteSchema = z.object({
   telefono: z.string().trim().max(20).optional().nullable(),
   email: z.string().trim().email().max(255).optional().nullable(),
   activo: z.boolean().default(true),
-});
+  })
+  .strict();
 
 export const updateEstudianteSchema = z.object({
   nombres: z.string().trim().min(2).max(100).optional(),

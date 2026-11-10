@@ -2,6 +2,8 @@
 
 Fecha: 2026-11-08. Versión: 1.0.
 
+**Rectificación (2026-11-10, sesión `sgpm-fase5-cierre-v3`):** la línea de `POST /api/tutores/:id/estudiantes` indicaba el permiso `estudiantes:manage`. Verificado contra el código en el commit base de la fase 4 y contra el actual, el permiso exigido siempre fue `tutores:manage`. Se corrige el texto; no cambia ningún comportamiento del sistema.
+
 **FASE:** 4 — Gestión de estudiantes y responsables.
 
 **OBJETIVO:** Implementar las funciones administrativas relacionadas con estudiantes y tutores/responsables.
@@ -23,7 +25,7 @@ Fecha: 2026-11-08. Versión: 1.0.
 - `POST /api/tutores` — crear tutor (requiere `tutores:manage`, CSRF)
 - `PATCH /api/tutores/:id` — actualizar tutor (requiere `tutores:manage`, CSRF)
 - `PATCH /api/tutores/:id/desactivar` — desactivar tutor (soft-delete, requiere `tutores:manage`, CSRF)
-- `POST /api/tutores/:id/estudiantes` — asociar estudiante a tutor (requiere `estudiantes:manage`, CSRF)
+- `POST /api/tutores/:id/estudiantes` — asociar estudiante a tutor (requiere `tutores:manage`, CSRF)
 
 ### Backend — Capa de dominio y persistencia
 - `backend/src/repositories/estudiante.repository.ts` — CRUD, búsqueda por documento, listado, desactivación, verificación de duplicados

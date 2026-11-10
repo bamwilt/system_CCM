@@ -23,6 +23,7 @@ export interface TutorSafe {
   documento_identidad: string;
   telefono: string | null;
   email: string | null;
+  parentesco: string | null;
   activo: boolean;
 }
 
@@ -270,6 +271,7 @@ export class TutorRepository {
       documento_identidad: tutor.documento_identidad,
       telefono: tutor.telefono,
       email: tutor.email,
+      parentesco: tutor.parentesco,
       activo: tutor.activo,
     };
   }

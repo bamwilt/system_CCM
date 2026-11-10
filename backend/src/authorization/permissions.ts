@@ -9,6 +9,8 @@ export const AUTH_PERMISSIONS = {
   ESTUDIANTES_MANAGE: 'estudiantes:manage',
   ESTUDIANTES_READ: 'estudiantes:read',
   TUTORES_MANAGE: 'tutores:manage',
+  MATRICULAS_MANAGE: 'matriculas:manage',
+  MATRICULAS_READ: 'matriculas:read',
 } as const;
 
 export type AuthPermission = (typeof AUTH_PERMISSIONS)[keyof typeof AUTH_PERMISSIONS];
@@ -19,6 +21,8 @@ export const AUTH_PERMISSION_CODES: readonly AuthPermission[] = [
   AUTH_PERMISSIONS.ESTUDIANTES_MANAGE,
   AUTH_PERMISSIONS.ESTUDIANTES_READ,
   AUTH_PERMISSIONS.TUTORES_MANAGE,
+  AUTH_PERMISSIONS.MATRICULAS_MANAGE,
+  AUTH_PERMISSIONS.MATRICULAS_READ,
 ];
 
 export const AUTH_MANAGE_PERMISSIONS = AUTH_PERMISSION_CODES;

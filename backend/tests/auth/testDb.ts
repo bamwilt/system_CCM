@@ -1,29 +1,11 @@
 import { Pool } from 'pg';
 import path from 'node:path';
-import fs from 'node:fs';
+
+import { PROJECT_ROOT, APPROVED_SOCKET_DIR } from './testEnv.js';
 
 const APPROVED_DB_NAME = 'sgpm_auth_test';
 const APPROVED_PORT = '55433';
 const APPROVED_USER = 'sgpm_test';
-
-function resolveProjectRoot(): string {
-  const candidates = [
-    process.cwd(),
-    path.resolve(process.cwd(), '..'),
-    path.resolve(process.cwd(), '..', '..'),
-  ];
-  for (const candidate of candidates) {
-    const socketDir = path.resolve(candidate, '.tmp', 'test-artifacts', 'sgpm-fase3-db');
-    if (fs.existsSync(socketDir)) {
-      return candidate;
-    }
-  }
-  // Fallback for the documented invocation (workdir=backend).
-  return path.resolve(process.cwd(), '..');
-}
-
-const PROJECT_ROOT = resolveProjectRoot();
-const APPROVED_SOCKET_DIR = path.resolve(PROJECT_ROOT, '.tmp', 'test-artifacts', 'sgpm-fase3-db');
 
 /**
  * Returns an isolated test database URL only when it is explicitly provided and

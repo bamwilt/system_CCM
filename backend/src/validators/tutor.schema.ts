@@ -28,7 +28,21 @@ export const tutorIdParamSchema = z.object({
   id: z.string().regex(/^[1-9][0-9]*$/, 'ID inválido').transform((val) => parseInt(val, 10)),
 });
 
-export const asociarTutorSchema = z.object({
-  tutorId: z.string().regex(/^[1-9][0-9]*$/, 'ID de tutor inválido').transform((val) => parseInt(val, 10)),
-  es_principal: z.boolean().default(false),
-});
+/**
+ * Cuerpo de POST /api/tutores/:id/estudiantes.
+ * El id del tutor SIEMPRE proviene del parametro de ruta :id.
+ * `estudiante_id` es el id del ESTUDIANTE que se asocia (positivo seguro).
+ * El schema es estricto: el campo legacy `tutorId` se rechaza con HTTP 400.
+ */
+export const asociarTutorSchema = z
+  .object({
+    estudiante_id: z
+      .union([
+        z.number().int().positive(),
+        z.string().regex(/^[1-9][0-9]*$/, 'ID de estudiante inválido'),
+      ])
+      .transform((val) => (typeof val === 'string' ? Number(val) : val))
+      .refine((n) => Number.isSafeInteger(n) && n > 0, { message: 'ID de estudiante inválido' }),
+    es_principal: z.boolean().default(false),
+  })
+  .strict();

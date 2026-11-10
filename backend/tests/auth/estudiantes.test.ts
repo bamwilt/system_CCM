@@ -1,7 +1,8 @@
 import { vi } from 'vitest';
-vi.hoisted(() => {
+vi.hoisted(async () => {
+  const { TEST_SOCKET_DIR } = await import('./testEnv.js');
   process.env.NODE_ENV = 'test';
-  process.env.DB_HOST = '/home/bryan/Documentos/clase/DOCUMENTS/proyecto final/.tmp/test-artifacts/sgpm-fase3-db';
+  process.env.DB_HOST = TEST_SOCKET_DIR;
   process.env.DB_PORT = '55433';
   process.env.DB_NAME = 'sgpm_auth_test';
   process.env.DB_USER = 'sgpm_test';
@@ -39,6 +40,10 @@ async function resetDb(): Promise<void> {
   const client = await dbPool.connect();
   try {
     await client.query('BEGIN');
+    await client.query('DELETE FROM auth_login_limits');
+    await client.query('DELETE FROM mensualidades');
+    await client.query('DELETE FROM planes_pago');
+    await client.query('DELETE FROM matriculas');
     await client.query('DELETE FROM estudiante_tutor');
     await client.query('DELETE FROM estudiantes');
     await client.query('DELETE FROM tutores');
@@ -55,13 +60,12 @@ async function resetDb(): Promise<void> {
   }
 }
 
-
 async function createRole(name: string, grants: string[] = [], description: string | null = null): Promise<number> {
   const client = await dbPool.connect();
   try {
     const r = await client.query<{ id: number }>(
       'INSERT INTO roles (nombre, descripcion) VALUES ($1, $2) RETURNING id',
-      [name, description]
+      [name, description ?? null]
     );
     const id = r.rows[0].id;
     for (const grant of grants) {
@@ -149,16 +153,16 @@ describe('Estudiantes API', () => {
     await createUser('estreader@example.com', 'Password12345!', roleId);
     const { cookie } = await login('estreader@example.com', 'Password12345!');
 
-    // Create a student first (needs estudiantes:manage, so use admin role)
     const adminRoleId = await createRole('admin_est', ['estudiantes:manage', 'estudiantes:read', 'tutores:manage']);
     await createUser('admin_est@example.com', 'Password12345!', adminRoleId);
-    const { cookie: adminCookie } = await login('admin_est@example.com', 'Password12345!');
+    const adminLogin = await login('admin_est@example.com', 'Password12345!');
 
     await request(app)
       .post('/api/estudiantes')
-      .set('Cookie', adminCookie)
+      .set('Cookie', adminLogin.cookie)
       .set('Origin', ORIGIN)
       .set('Content-Type', 'application/json')
+      .set('X-CSRF-Token', adminLogin.csrf)
       .send({
         nombres: 'Juan',
         apellidos: 'Pérez',
@@ -202,6 +206,210 @@ describe('Estudiantes API', () => {
     expect(res.body.estudiante).not.toHaveProperty('password_hash');
   });
 
+  it('POST /api/estudiantes exige estudiantes:manage y NO auth:roles:manage (RC-01)', async () => {
+    // Frontera de autorizacion fijada con pruebas. El codigo de FASE 4 exigia
+    // [estudiantes:manage, auth:roles:manage] (ambos) en POST /api/estudiantes,
+    // lo que devolvia 403 a cualquier actor de dominio: 11 pruebas fallaban
+    // contra HEAD y el endpoint quedaba inutilizable sin gestionar roles.
+    // Contrato vigente: estudiantes:manage es necesario y suficiente para crear.
+    // Con solo estudiantes:read o solo auth:roles:manage => 403 y sin fila.
+    const soloRol = await createRole('solo_roles', ['auth:roles:manage']);
+    await createUser('solo_rol@example.com', 'Password12345!', soloRol);
+    const { cookie: cookieRol, csrf: csrfRol } = await login('solo_rol@example.com', 'Password12345!');
+    const conRolSolo = await request(app)
+      .post('/api/estudiantes')
+      .set('Cookie', cookieRol)
+      .set('Origin', ORIGIN)
+      .set('Content-Type', 'application/json')
+      .set('X-CSRF-Token', csrfRol)
+      .send({ nombres: 'Sin', apellidos: 'Permiso', documento_identidad: '70000001' });
+    expect(conRolSolo.status).toBe(403);
+
+    const soloLectura = await createRole('solo_lectura', ['estudiantes:read']);
+    await createUser('solo_lect@example.com', 'Password12345!', soloLectura);
+    const { cookie: cookieLec, csrf: csrfLec } = await login('solo_lect@example.com', 'Password12345!');
+    const comoLector = await request(app)
+      .post('/api/estudiantes')
+      .set('Cookie', cookieLec)
+      .set('Origin', ORIGIN)
+      .set('Content-Type', 'application/json')
+      .set('X-CSRF-Token', csrfLec)
+      .send({ nombres: 'Lector', apellidos: 'Solo', documento_identidad: '70000002' });
+    expect(comoLector.status).toBe(403);
+
+    const client = await dbPool.connect();
+    try {
+      const filas = await client.query<{ c: number }>(
+        'SELECT count(*)::int AS c FROM estudiantes WHERE documento_identidad IN ($1, $2)',
+        ['70000001', '70000002']
+      );
+      expect(Number(filas.rows[0].c)).toBe(0);
+    } finally {
+      client.release();
+    }
+  });
+
+  it('POST /api/estudiantes con estudiantes:manage y SIN auth:roles:manage -> 201 (RC-01b)', async () => {
+    // El permiso de dominio es suficiente: actor sin ningun permiso de roles.
+    const dominioPuro = await createRole('dominio_puro', ['estudiantes:manage']);
+    await createUser('dominio_puro@example.com', 'Password12345!', dominioPuro);
+    const { cookie, csrf } = await login('dominio_puro@example.com', 'Password12345!');
+    const res = await request(app)
+      .post('/api/estudiantes')
+      .set('Cookie', cookie)
+      .set('Origin', ORIGIN)
+      .set('Content-Type', 'application/json')
+      .set('X-CSRF-Token', csrf)
+      .send({ nombres: 'Dominio', apellidos: 'Puro', documento_identidad: '70000003' });
+    expect(res.status).toBe(201);
+  });
+
+  it('POST /api/estudiantes DTO desconocido (campo extra) -> reproducible FAIL si no lo rechaza', async () => {
+    const roleId = await createRole('admin_est_dto', ['estudiantes:manage', 'estudiantes:read']);
+    await createUser('dto@example.com', 'Password12345!', roleId);
+    const { cookie, csrf } = await login('dto@example.com', 'Password12345!');
+
+    const res = await request(app)
+      .post('/api/estudiantes')
+      .set('Cookie', cookie)
+      .set('Origin', ORIGIN)
+      .set('Content-Type', 'application/json')
+      .set('X-CSRF-Token', csrf)
+      .send({
+        nombres: 'DTO',
+        apellidos: 'Extra',
+        documento_identidad: '99001122',
+        email: 'dto.extra@example.com',
+        campo_inexistente: 'debe-ser-rechazado',
+      });
+    // Contrato: DTO desconocido debe rechazarse con 400. Si devuelve 201, el schema no descarta campos desconocidos (bug reproducido, no se toca prod).
+    expect(res.status).toBe(400);
+  });
+
+  it('POST /api/estudiantes IDs inseguros en detalle -> 404', async () => {
+    const roleId = await createRole('admin_est_ids', ['estudiantes:manage', 'estudiantes:read']);
+    await createUser('ids@example.com', 'Password12345!', roleId);
+    const { cookie } = await login('ids@example.com', 'Password12345!');
+
+    const res1 = await request(app).get('/api/estudiantes/abc').set('Cookie', cookie);
+    expect(res1.status).toBe(404);
+    const res2 = await request(app).get('/api/estudiantes/0').set('Cookie', cookie);
+    expect(res2.status).toBe(404);
+    const res3 = await request(app).get('/api/estudiantes/-1').set('Cookie', cookie);
+    expect(res3.status).toBe(404);
+  });
+
+  it('PATCH /api/estudiantes/:id omite campos -> conserva los no enviados', async () => {
+    const roleId = await createRole('admin_est_omit', ['estudiantes:manage', 'estudiantes:read']);
+    await createUser('omit@example.com', 'Password12345!', roleId);
+    const { cookie, csrf } = await login('omit@example.com', 'Password12345!');
+
+    const createRes = await request(app)
+      .post('/api/estudiantes')
+      .set('Cookie', cookie)
+      .set('Origin', ORIGIN)
+      .set('Content-Type', 'application/json')
+      .set('X-CSRF-Token', csrf)
+      .send({
+        nombres: 'Conserva',
+        apellidos: 'Apellido',
+        documento_identidad: '55667788',
+        email: 'conserva@example.com',
+        telefono: '12345678',
+      });
+    expect(createRes.status).toBe(201);
+    const estudianteId = createRes.body.estudiante.id;
+
+    const res = await request(app)
+      .patch(`/api/estudiantes/${estudianteId}`)
+      .set('Cookie', cookie)
+      .set('Origin', ORIGIN)
+      .set('Content-Type', 'application/json')
+      .set('X-CSRF-Token', csrf)
+      .send({ nombres: 'Conserva Updated' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.estudiante.nombres).toBe('Conserva Updated');
+
+    const detail = await request(app).get(`/api/estudiantes/${estudianteId}`).set('Cookie', cookie);
+    expect(detail.status).toBe(200);
+    expect(detail.body.estudiante.apellidos).toBe('Apellido');
+    expect(detail.body.estudiante.documento_identidad).toBe('55667788');
+    expect(detail.body.estudiante.email).toBe('conserva@example.com');
+    expect(detail.body.estudiante.telefono).toBe('12345678');
+  });
+
+  it('PATCH /api/estudiantes/:id/desactivar y filtro GET activo=false -> DESACTIVADA', async () => {
+    const roleId = await createRole('admin_est_des', ['estudiantes:manage', 'estudiantes:read']);
+    await createUser('des@example.com', 'Password12345!', roleId);
+    const { cookie, csrf } = await login('des@example.com', 'Password12345!');
+
+    const createRes = await request(app)
+      .post('/api/estudiantes')
+      .set('Cookie', cookie)
+      .set('Origin', ORIGIN)
+      .set('Content-Type', 'application/json')
+      .set('X-CSRF-Token', csrf)
+      .send({
+        nombres: 'Elena',
+        apellidos: 'Díaz',
+        documento_identidad: '99887766',
+        email: 'elena@example.com',
+      });
+    const estudianteId = createRes.body.estudiante.id;
+
+    const res = await request(app)
+      .patch(`/api/estudiantes/${estudianteId}/desactivar`)
+      .set('Cookie', cookie)
+      .set('Origin', ORIGIN)
+      .set('Content-Type', 'application/json')
+      .set('X-CSRF-Token', csrf)
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.estudiante.activo).toBe(false);
+
+    const inactivos = await request(app).get('/api/estudiantes?activo=false').set('Cookie', cookie);
+    expect(inactivos.status).toBe(200);
+    expect(inactivos.body.estudiantes.length).toBeGreaterThanOrEqual(1);
+    expect(inactivos.body.estudiantes.some((e: { id: number; activo: boolean }) => e.id === estudianteId && e.activo === false)).toBe(true);
+  });
+
+  it('GET /api/estudiantes paginación límite=1', async () => {
+    const roleId = await createRole('admin_est_pag', ['estudiantes:manage', 'estudiantes:read']);
+    await createUser('pag@example.com', 'Password12345!', roleId);
+    const { cookie, csrf } = await login('pag@example.com', 'Password12345!');
+
+    await request(app)
+      .post('/api/estudiantes')
+      .set('Cookie', cookie)
+      .set('Origin', ORIGIN)
+      .set('Content-Type', 'application/json')
+      .set('X-CSRF-Token', csrf)
+      .send({
+        nombres: 'Pagina1',
+        apellidos: 'Uno',
+        documento_identidad: '11111111',
+        email: 'pagina1@example.com',
+      });
+    await request(app)
+      .post('/api/estudiantes')
+      .set('Cookie', cookie)
+      .set('Origin', ORIGIN)
+      .set('Content-Type', 'application/json')
+      .set('X-CSRF-Token', csrf)
+      .send({
+        nombres: 'Pagina2',
+        apellidos: 'Dos',
+        documento_identidad: '22222222',
+        email: 'pagina2@example.com',
+      });
+
+    const res = await request(app).get('/api/estudiantes?limite=1').set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.estudiantes).toHaveLength(1);
+  });
+
   it('POST /api/estudiantes duplicate document -> 409', async () => {
     const roleId = await createRole('admin_est3', ['estudiantes:manage', 'estudiantes:read']);
     await createUser('admin3@example.com', 'Password12345!', roleId);
@@ -236,7 +444,7 @@ describe('Estudiantes API', () => {
     expect(res.status).toBe(409);
   });
 
-  it('PATCH /api/estudiantes/:id updates student and revokes sessions on password change', async () => {
+  it('PATCH /api/estudiantes/:id updates student', async () => {
     const roleId = await createRole('admin_est4', ['estudiantes:manage', 'estudiantes:read']);
     await createUser('admin4@example.com', 'Password12345!', roleId);
     const { cookie, csrf } = await login('admin4@example.com', 'Password12345!');
@@ -267,37 +475,6 @@ describe('Estudiantes API', () => {
     expect(res.body.estudiante.nombres).toBe('Carlos Updated');
   });
 
-  it('PATCH /api/estudiantes/:id/desactivar deactivates student', async () => {
-    const roleId = await createRole('admin_est5', ['estudiantes:manage', 'estudiantes:read']);
-    await createUser('admin5@example.com', 'Password12345!', roleId);
-    const { cookie, csrf } = await login('admin5@example.com', 'Password12345!');
-
-    const createRes = await request(app)
-      .post('/api/estudiantes')
-      .set('Cookie', cookie)
-      .set('Origin', ORIGIN)
-      .set('Content-Type', 'application/json')
-      .set('X-CSRF-Token', csrf)
-      .send({
-        nombres: 'Elena',
-        apellidos: 'Díaz',
-        documento_identidad: '99887766',
-        email: 'elena@example.com',
-      });
-    const estudianteId = createRes.body.estudiante.id;
-
-    const res = await request(app)
-      .patch(`/api/estudiantes/${estudianteId}/desactivar`)
-      .set('Cookie', cookie)
-      .set('Origin', ORIGIN)
-      .set('Content-Type', 'application/json')
-      .set('X-CSRF-Token', csrf)
-      .send({});
-
-    expect(res.status).toBe(200);
-    expect(res.body.estudiante.activo).toBe(false);
-  });
-
   it('GET /api/estudiantes/:id returns 404 for non-existent', async () => {
     const roleId = await createRole('admin_est6', ['estudiantes:manage', 'estudiantes:read']);
     await createUser('admin6@example.com', 'Password12345!', roleId);
@@ -319,16 +496,16 @@ describe('Tutores API', () => {
     await createUser('tutorreader@example.com', 'Password12345!', roleId);
     const { cookie } = await login('tutorreader@example.com', 'Password12345!');
 
-    // Create a tutor first
     const adminRoleId = await createRole('admin_tutor', ['tutores:manage', 'estudiantes:read']);
     await createUser('admin_t@example.com', 'Password12345!', adminRoleId);
-    const { cookie: adminCookie } = await login('admin_t@example.com', 'Password12345!');
+    const adminLogin = await login('admin_t@example.com', 'Password12345!');
 
     await request(app)
       .post('/api/tutores')
-      .set('Cookie', adminCookie)
+      .set('Cookie', adminLogin.cookie)
       .set('Origin', ORIGIN)
       .set('Content-Type', 'application/json')
+      .set('X-CSRF-Token', adminLogin.csrf)
       .send({
         nombres: 'Roberto',
         apellidos: 'Silva',
@@ -410,7 +587,6 @@ describe('Tutores API', () => {
     await createUser('admin_t4@example.com', 'Password12345!', roleId);
     const { cookie, csrf } = await login('admin_t4@example.com', 'Password12345!');
 
-    // Create student
     const studentRes = await request(app)
       .post('/api/estudiantes')
       .set('Cookie', cookie)
@@ -425,7 +601,6 @@ describe('Tutores API', () => {
       });
     const estudianteId = studentRes.body.estudiante.id;
 
-    // Create tutor
     const tutorRes = await request(app)
       .post('/api/tutores')
       .set('Cookie', cookie)
@@ -441,7 +616,61 @@ describe('Tutores API', () => {
       });
     const tutorId = tutorRes.body.tutor.id;
 
-    // Associate
+    const res = await request(app)
+      .post(`/api/tutores/${tutorId}/estudiantes`)
+      .set('Cookie', cookie)
+      .set('Origin', ORIGIN)
+      .set('Content-Type', 'application/json')
+      .set('X-CSRF-Token', csrf)
+      .send({ estudiante_id: estudianteId, es_principal: true });
+
+    expect(res.status).toBe(201);
+
+    const associated = await request(app)
+      .get(`/api/tutores/${tutorId}/estudiantes`)
+      .set('Cookie', cookie);
+    expect(associated.status).toBe(200);
+    expect(associated.body.estudiantes).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: estudianteId })])
+    );
+  });
+
+  it('POST /api/tutores/:id/estudiantes rejects legacy tutorId with 400 and creates no link', async () => {
+    const roleId = await createRole('admin_tutor_legacy', ['tutores:manage', 'estudiantes:manage', 'estudiantes:read']);
+    await createUser('admin_tutor_legacy@example.com', 'Password12345!', roleId);
+    const { cookie, csrf } = await login('admin_tutor_legacy@example.com', 'Password12345!');
+
+    const studentRes = await request(app)
+      .post('/api/estudiantes')
+      .set('Cookie', cookie)
+      .set('Origin', ORIGIN)
+      .set('Content-Type', 'application/json')
+      .set('X-CSRF-Token', csrf)
+      .send({
+        nombres: 'Legacy',
+        apellidos: 'Contrato',
+        documento_identidad: '77889900',
+        email: 'legacy.contrato@example.com',
+      });
+    expect(studentRes.status).toBe(201);
+    const estudianteId = studentRes.body.estudiante.id;
+
+    const tutorRes = await request(app)
+      .post('/api/tutores')
+      .set('Cookie', cookie)
+      .set('Origin', ORIGIN)
+      .set('Content-Type', 'application/json')
+      .set('X-CSRF-Token', csrf)
+      .send({
+        nombres: 'Legacy',
+        apellidos: 'Tutor',
+        documento_identidad: '77889901',
+        email: 'legacy.tutor@example.com',
+        parentesco: 'Madre',
+      });
+    expect(tutorRes.status).toBe(201);
+    const tutorId = tutorRes.body.tutor.id;
+
     const res = await request(app)
       .post(`/api/tutores/${tutorId}/estudiantes`)
       .set('Cookie', cookie)
@@ -450,7 +679,13 @@ describe('Tutores API', () => {
       .set('X-CSRF-Token', csrf)
       .send({ tutorId: estudianteId, es_principal: true });
 
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(400);
+
+    const links = await dbPool.query(
+      'SELECT count(*)::int AS c FROM estudiante_tutor WHERE tutor_id = $1 AND estudiante_id = $2',
+      [tutorId, estudianteId]
+    );
+    expect(Number(links.rows[0].c)).toBe(0);
   });
 
   it('GET /api/tutores/:id/estudiantes returns associated students', async () => {
@@ -458,7 +693,6 @@ describe('Tutores API', () => {
     await createUser('admin_t5@example.com', 'Password12345!', roleId);
     const { cookie, csrf } = await login('admin_t5@example.com', 'Password12345!');
 
-    // Create student and tutor
     const studentRes = await request(app)
       .post('/api/estudiantes')
       .set('Cookie', cookie)
@@ -488,19 +722,16 @@ describe('Tutores API', () => {
       });
     const tutorId = tutorRes.body.tutor.id;
 
-    // Associate
-    await request(app)
+    const association = await request(app)
       .post(`/api/tutores/${tutorId}/estudiantes`)
       .set('Cookie', cookie)
       .set('Origin', ORIGIN)
       .set('Content-Type', 'application/json')
       .set('X-CSRF-Token', csrf)
-      .send({ tutorId: estudianteId, es_principal: true });
+      .send({ estudiante_id: estudianteId, es_principal: true });
+    expect(association.status).toBe(201);
 
-    // Get students of tutor
-    const res = await request(app)
-      .get(`/api/tutores/${tutorId}/estudiantes`)
-      .set('Cookie', cookie);
+    const res = await request(app).get(`/api/tutores/${tutorId}/estudiantes`).set('Cookie', cookie);
 
     expect(res.status).toBe(200);
     expect(res.body.estudiantes).toBeInstanceOf(Array);

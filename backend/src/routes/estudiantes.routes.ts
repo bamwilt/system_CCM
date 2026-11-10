@@ -142,7 +142,7 @@ router.get(
 router.post(
   '/',
   requireAuth,
-  requirePermission([AUTH_PERMISSIONS.ESTUDIANTES_MANAGE, AUTH_PERMISSIONS.ROLES_MANAGE]),
+  requirePermission(AUTH_PERMISSIONS.ESTUDIANTES_MANAGE),
   validateCsrf,
   async (req: Request, res: Response, next: NextFunction) => {
     const auth = (req as AuthenticatedRequest).auth;

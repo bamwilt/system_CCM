@@ -1,6 +1,6 @@
 # Decisiones y contradicciones del SGPM
 
-Fecha de apertura: 2026-11-06. Versión 0.1. **Ninguna propuesta de este registro implica aprobación institucional.** Los originales permanecen sin cambios. Fuentes: [inventario](INVENTARIO_DOCUMENTAL.md).
+Fecha de apertura: 2026-11-06. Versión 0.1. Actualización: 2026-11-10 (registro de DEC-17, DEC-18, DEC-19 y de la deuda técnica de la FASE 5; entradas anteriores sin modificar ni renumerar). **Ninguna propuesta de este registro implica aprobación institucional.** Los originales permanecen sin cambios. Fuentes: [inventario](INVENTARIO_DOCUMENTAL.md).
 
 ## Procedimiento de decisión
 
@@ -127,6 +127,40 @@ Para cada diferencia se identifican fuentes, vigencia, alternativas, dependencia
 - **Actualización (sesión `sgpm-fase0-correccion-01` — intento runtime1, ronda documental 2/2):** el origen quedó **RESUELTO** (desarrollo NUEVO, sin importar `system_CCM`); el resto permanece **ABIERTO**.
 - **Pendientes:** contrato/licencia, autorización de tratamiento, retención, mantenimiento/SLA, actas de requisitos y riesgos. D10 propone atención crítica ≤2 h; D12 soporte sugiere 1 día hábil: son ámbitos/metas por pactar, no SLA vigente ni RTO intercambiable.
 - **Responsable:** solicitante/Dirección/jurídico/técnico. **Estado: PENDIENTE; NO HAY ACEPTACIÓN INSTITUCIONAL ACREDITADA.**
+
+### DEC-17 — Idempotencia de aplicación en matrículas
+
+- **Fuentes:** PM FASE 5, regla crítica «No generar obligaciones duplicadas cuando una operación se repite por accidente». D02 STK-REQ-002 y Anexo I piden generación idempotente de las diez cuotas; la matriz mantiene RN-SGPM-02. Hallazgo de seguridad del lote `sgpm-fase5-cierre-v3`: una clave única global permitía a otro actor con `matriculas:manage` descubrir y reinyectar una matrícula ajena (oráculo entre actores y auditoría contaminable). No existe fuente institucional sobre reintentos de ventanilla, tiempo de vida de la clave ni quién la genera.
+- **Alternativas:** A) clave opcional enviada por el cliente, acotada al actor creador, con unicidad `(clave, actor)`; B) clave generada por el servidor (por ejemplo derivada de la petición o entregada en un paso previo); C) solo unicidad de base de datos `(estudiante, año)` sin clave de aplicación; D) registro de idempotencia separado con huella completa de la petición.
+- **Propuesta:** A, implementada en este lote: `idempotency_key` opcional (string, 1..255 tras recorte; inválidos → 400), persistencia con la matrícula, *replay* 200 con la matrícula y el plan existentes, 409 cuando la misma clave se reutiliza con otra identidad académica, índice único parcial `uq_matriculas_idempotencia_actor` sobre `(idempotency_key, creado_por_usuario_id)` como última línea de defensa y `23505` traducido a 409 sin filtrar el mensaje del driver. La columna `creado_por_usuario_id` se declaró **sin `FOREIGN KEY`** a propósito: es registro histórico del actor creador, no relación viva, y una FK obligaría a tocar `matriculas` al modificar usuarios (bloqueos y *deadlock* contra el flujo de matrícula).
+- **Pendiente de ratificar:** si la clave debe ser generada por el servidor en lugar de aceptada del cliente (alternativa B); la comparación de identidad actual cubre `(estudiante_id, anio_lectivo_id, grado_id)` y **no** incluye el `plan_pago` solicitado, de modo que un *replay* con otra tarifa devuelve 200 con el plan original (hallazgo #3 del revisor, no cerrado); retención/expiración de las claves y tratamiento de la clave cruda en auditoría (solo se guarda un hash SHA-256 truncado).
+- **Responsable:** Dirección/secretaría con propuesta técnica. **Estado: PROPUESTA TÉCNICA IMPLEMENTADA Y MEDIDA; PENDIENTE DE RATIFICACIÓN INSTITUCIONAL.**
+
+### DEC-18 — Alcance del historial de matrícula
+
+- **Fuentes:** PM FASE 5 «Consulta de historial». D02 NFR-012 y SEG-010 exigen auditar autenticación, pagos, estados y operaciones críticas con fecha/usuario/resultado; D08 SEC-REQ-04 pide auditoría financiera protegida. D02 FR-010 menciona «historial financiero intacto» al actualizar un tutor, sin definir el alcance del historial de matrícula. No hay fuente que defina retención ni qué eventos deben conservarse.
+- **Alternativas:** A) estado actual + plan de pago + cuotas + auditoría de esa matrícula; B) A más historial financiero (pagos, mora, descuentos) cuando exista la FASE 6; C) historial de cambios por campo (versionado de entidad) además de la auditoría de eventos.
+- **Propuesta:** A, implementada en este lote: `GET /api/matriculas/:id/historial`, de solo lectura, con `matriculas:read`, filtro estricto `entidad = 'matriculas' AND entidad_id = $1` (parametrizado) y orden ascendente `fecha ASC, id ASC`. No expone auditoría de otras entidades ni de otras matrículas. El endpoint no escribe nada.
+- **Pendiente de definir:** retención de los eventos y de las filas de auditoría; qué eventos entran (hoy `matricula_crear`, `matricula_actualizar`, `plan_pago`, `mensualidades`); si debe incluir el historial financiero de la FASE 6 (alternativa B) y qué proyección de `detalle` se devuelve (el revisor observa que se devuelve sin *allowlist* de campos); coherencia temporal entre lecturas (el revisor sugiere `REPEATABLE READ READ ONLY`, no implementado).
+- **Responsable:** Dirección/secretaría con Soporte técnico. **Estado: PROPUESTA TÉCNICA IMPLEMENTADA Y MEDIDA; PENDIENTE DE DEFINICIÓN INSTITUCIONAL.**
+
+### DEC-19 — Convención de códigos de permiso en el seed
+
+- **Fuentes:** `database/seeds/001_seed_base.sql` convivía con códigos legacy (`pagos:leer`, `pagos:escribir`, `reportes:leer`, `auditoria:leer`) y con los códigos técnicos del modelo de autorización vivo (`estudiantes:read`, `estudiantes:manage`, `tutores:manage`, `matriculas:read`, `matriculas:manage`) definidos en `backend/src/authorization/permissions.ts`. D08/D11 proponen matrices de permisos sin fijar nomenclatura; DEC-03 sigue abierta.
+- **Alternativas:** A) usar `read`/`manage` en todos los dominios implementados y conservar los códigos legacy de fases futuras hasta definirlos; B) renombrar todos los códigos a la convención nueva y reescribir el seed y las concesiones; C) catálogo versionado de permisos con autoridad aprobada.
+- **Propuesta:** A, aplicada en este lote: el seed alinea los dominios implementados con `AUTH_PERMISSIONS` (`read`/`manage`) y conserva `pagos:leer`, `pagos:escribir`, `reportes:leer`, `auditoria:leer` para las fases no implementadas. **No** se inserta ninguna fila en `auth_role_permissions`: medido 0 filas en la instancia de prueba y el código no concede permisos automáticamente a ningún rol institucional (DEC-03 permanece abierta). El seed sigue copiando todos los permisos de la tabla legacy `permisos` al rol `ADMIN` mediante `rol_permiso`, tabla que el modelo de autorización vivo no lee.
+- **Pendiente de definir:** nomenclatura definitiva de pagos/reportes/auditoría cuando se implementen esas fases; si `rol_permiso`/`permisos` se conservan como legado documentado o se retiran en una fase de limpieza (implicaría borrar filas).
+- **Responsable:** Dirección/secretaría con equipo técnico. **Estado: PROPUESTA TÉCNICA APLICADA EN EL SEED; PENDIENTE DE RATIFICACIÓN.**
+
+## Deuda técnica registrada (no cerrada en la FASE 5)
+
+Registro de hallazgos conocidos que **no** se resolvieron en el lote `sgpm-fase5-cierre-v3`, con su condición:
+
+- **`zod@3.25.76` requiere salto mayor a v4.** `npm audit --omit=dev` reporta 1 vulnerabilidad *high* (agotamiento de memoria al validar colecciones grandes), 0 *critical*. El cambio rompe la API de validación; queda fuera del alcance de la FASE 5, con mitigación parcial (límite de cuerpo de 1 MB, autenticación y CSRF). No se usó `npm audit fix --force`.
+- **`npm run lint` está roto** por ausencia de configuración *flat* de ESLint (`eslint.config.*`). Preexistente y fuera del alcance declarado.
+- **`backend/src/scripts/bootstrap-auth.ts` conserva dos `.catch(() => undefined)`** y `backend/src/scripts/seed.ts` imprime el error crudo. El mismo patrón de *rollback* silencioso existe en más de 20 sitios preexistentes del proyecto; la FASE 5 fijó el patrón correcto en `migrate.ts` y `matriculas.routes.ts`, pero no unificó el resto.
+- **El seed duplica sus 3 filas de ejemplo de `tarifas` en cada reejecución** porque `tarifas` no tiene clave natural única y `ON CONFLICT DO NOTHING` no protege. Requiere decisión de modelo de datos (FASE 6).
+- **Hallazgos del revisor de la FASE 5 no cerrados** (`REVISION.md` #2–#19): asimetría de validación entre alta y actualización; comparación de identidad de *replay* que ignora el `plan_pago`; historial sin *snapshot* `REPEATABLE READ`; `actorId` sin uso en `obtenerPlanPago`; código muerto y listado duplicado; `mensualidades` y `cuotas` devueltos como el mismo array; semántica del monto de tarifa por cuota (DEC-05); `MAX_CUOTAS = 120` sin registro de decisión; selecciones sin `ORDER BY` en pruebas; aserción vacua `expect(true).toBe(true)`; dos criterios del plan implementados pero **sin prueba que los mida** (traducción HTTP de `23505` → 409 y ausencia de la clave cruda en `auditoria.detalle`); advisory lock `4315003` global del proyecto; `rol_permiso` legacy y datos de demostración del seed con moneda, montos y calendario.
 
 ## Preguntas de cierre priorizadas
 
