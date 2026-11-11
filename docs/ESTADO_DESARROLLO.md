@@ -233,6 +233,12 @@ Ejecutado el 2026-11-11 (lote `sgpm-fase7-cobro-v1`). Consume el motor de 6.B si
 2. **Fuga de conexiones:** al reescribir el bloque transaccional se perdió `finally { client.release() }`; cada petición filtraba una conexión y el pool agotado hacía esperar 5 s por petición. Restituido.
 3. **Carrera en el limitador de inicio de sesión** (código de Fase 3, `src/services/auth.service.ts`): `INSERT ... ON CONFLICT DO NOTHING` seguido de `SELECT ... FOR UPDATE` dejaba `row` en `undefined` si una transacción concurrente insertaba y revertía, produciendo 500. Sustituido por `INSERT ... ON CONFLICT DO UPDATE ... RETURNING` atómico en los dos sitios.
 
+### Pruebas
+
+Las nueve pruebas obligatorias del PM están en `backend/tests/pagos-api.test.ts` (23 pruebas, todas en verde): doble clic, repetición de solicitudes, fallos de red con hash lógico, concurrencia con conexiones reales, pago parcial, pago completo, reversión, permisos e integridad de comprobantes. La regresión completa queda en **320 pruebas PASS / 0 FAIL / 0 SKIP en 16 archivos, exit 0**.
+
+Tres versiones previas del arnés fallaron por defectos del arnés, no del producto: el `beforeEach` borraba `auth_login_limits`, cuyo lock de fila retiene el limitador en cada petición HTTP y bloqueaba el hook hasta su timeout; varias pruebas montaban su matrícula con un actor sin `matriculas:manage` o con CSRF inválido; y dos conteos filtraban por `observaciones`, campo que la fila inversa de la reversión no lleva. El `afterAll` añade una guardia que falla ruidoso si la suite deja concesiones `pagos:*` en la base compartida, para no envenenar otra suite en silencio.
+
 ### Reserva principal
 
-Las nueve pruebas obligatorias del PM se redactaron pero **no se committearon**: pasaban de forma aislada y fallaban en la corrida completa por estado cruzado del arnés, y el fichero llegaba a abortar otros cinco ficheros de la suite. Entregarlo habría roto la regresión. La FASE 7.A queda **verificada funcionalmente, sin cobertura automatizada commiteada**, y por esa razón no se declara completa.
+Sin PDF: no hay librería instalada y `npm audit` no es ejecutable en este entorno, de modo que la regla 13 del PM impedía añadir la dependencia sin poder auditarla. El comprobante se entrega como dato con identificador único. Queda además «seleccionar estudiante», que es de interfaz y corresponde a la Fase 9.

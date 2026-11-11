@@ -46,11 +46,11 @@ Reglas de seguridad financiera del PM:
 
 ## PRUEBAS EJECUTADAS
 
-- **Regresión completa:** `cd backend && npm test` → **15 archivos, 297 pruebas, 297 PASS / 0 FAIL / 0 SKIP, exit 0** (158 s). Igual que la línea base previa: este lote **no añadió pruebas automatizadas**.
+- **Regresión completa:** `cd backend && npm test` → **16 archivos, 320 pruebas, 320 PASS / 0 FAIL / 0 SKIP, exit 0** (169 s). Línea base previa: 15 archivos y 297 pruebas; este lote añade **23 pruebas** en 1 archivo nuevo.
 - **Typecheck de fuente:** exit 0. **Typecheck de fuente + tests:** exit 0.
 - **Verificación funcional puntual** (no automatizada): 45 comprobaciones del implementador sobre base de datos scratch aislada, más la verificación del orquestador de la atomicidad y de la lectura del comprobante mediante hash lógico.
 
-**Las nueve pruebas obligatorias del PM** (doble clic, repetición de solicitudes, fallos de red, concurrencia, pago parcial, pago completo, reversión, permisos, integridad de comprobantes) se redactaron en `backend/tests/pagos-api.test.ts`, pero **no se committearon**: 18 de 23 pasaban de forma aislada y 5 fallaban únicamente en la corrida completa por estado cruzado del arnés de prueba, y el fichero llegaba a abortar otros cinco ficheros de la suite. Entregarlo habría roto la regresión, que es peor que no entregarlo.
+**Las nueve pruebas obligatorias del PM** (doble clic, repetición de solicitudes, fallos de red, concurrencia, pago parcial, pago completo, reversión, permisos, integridad de comprobantes) están implementadas en `backend/tests/pagos-api.test.ts`: **23 pruebas, todas en verde**, más 6 de límites y forma de consulta. Las tres primeras versiones del arnés fallaron por defectos del propio arnés, no del producto: (1) el `beforeEach` borraba `auth_login_limits`, tabla cuyo lock de fila retiene el limitador durante cada petición HTTP, lo que bloqueaba el hook hasta su timeout de 30 s; (2) varias pruebas montaban su matrícula con un actor al que le faltaba `matriculas:manage` o con un CSRF inválido; (3) dos conteos filtraban por `observaciones`, campo que la fila inversa de la reversión no lleva.
 
 ## RESULTADOS
 
@@ -74,7 +74,7 @@ Reglas de seguridad financiera del PM:
 
 ## LIMITACIONES
 
-1. **Sin cobertura automatizada commiteada para la FASE 7.A.** Ver "PRUEBAS EJECUTADAS". Es la reserva principal de este cierre y la razón por la que la fase no se declara completa.
+1. **Sin PDF.** Ver el punto 2 de LIMITACIONES: es la reserva que queda, junto con la selección de estudiante que corresponde a la Fase 9.
 2. **Sin PDF.** El PM y las fuentes piden comprobante en PDF, pero no hay librería instalada y `npm audit` no es ejecutable en este entorno (registro npm inalcanzable), de modo que la regla 13 del PM ("verifica las dependencias antes de utilizarlas") impedía añadirla sin poder auditarla. El comprobante se entrega como dato con identificador único, que es lo que el PM exige de forma no negociable.
 3. **Sin endpoint de "seleccionar estudiante":** es de interfaz y corresponde a la Fase 9.
 4. **La moneda del comprobante es nullable** y el año del correlativo depende de la zona horaria de sesión de PostgreSQL: ambos amarrados a DEC-05, sin decisión institucional.
@@ -89,4 +89,4 @@ Reglas de seguridad financiera del PM:
 
 ## ESTADO DE LA FASE
 
-**FASE 7.A IMPLEMENTADA Y VERIFICADA FUNCIONALMENTE, SIN COBERTURA AUTOMATIZADA COMMITEADA.** No se declara completa: tres defectos encontrados y corregidos, y la reserva de pruebas del punto 1 de LIMITACIONES.
+**FASE 7.A COMPLETADA TÉCNICAMENTE A NIVEL LOCAL, CON RESERVAS.** Las diez funcionalidades del PM están implementadas salvo «seleccionar estudiante» (interfaz, Fase 9) y el comprobante en PDF (dependencia no auditable en este entorno). Las nueve pruebas obligatorias del PM pasan. Reserva principal: sin PDF.
