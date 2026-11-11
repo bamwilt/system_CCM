@@ -43,19 +43,30 @@ async function consumeWindow(
   windowMs: number,
   now: Date
 ): Promise<ConsumeResult> {
-  await client.query(
-    'INSERT INTO auth_login_limits (bucket_key) VALUES ($1) ON CONFLICT (bucket_key) DO NOTHING',
-    [key]
-  );
+  // Upsert ATOMICO con RETURNING. La version anterior hacia
+  // `INSERT ... ON CONFLICT DO NOTHING` y luego `SELECT ... FOR UPDATE`: si otra
+  // transaccion concurrente insertaba la misma clave y revertia, el SELECT no
+  // encontraba fila, `row` quedaba en undefined y el acceso a `row.window_start`
+  // lanzaba TypeError -> 500 en el arranque de sesion. Con RETURNING la fila se
+  // obtiene en la misma sentencia: no existe ventana entre insertar y leer.
+  // El `DO UPDATE` toca la fila (toma el lock de fila), conservando la
+  // serializacion entre consumidores del mismo bucket.
   const result = await client.query<{
     window_start: Date;
     attempts: number;
     blocked_until: Date | null;
   }>(
-    'SELECT window_start, attempts, blocked_until FROM auth_login_limits WHERE bucket_key = $1 FOR UPDATE',
-    [key]
+    `INSERT INTO auth_login_limits (bucket_key, window_start)
+     VALUES ($1, $2)
+     ON CONFLICT (bucket_key) DO UPDATE SET actualizado_en = NOW()
+     RETURNING window_start, attempts, blocked_until`,
+    [key, now]
   );
   const row = result.rows[0];
+  if (!row) {
+    // Inalcanzable con RETURNING; si occurs, es error tecnico, no estado de negocio.
+    throw new AppError('Inconsistencia en el limitador de inicio de sesion', 500, 'INTERNAL_ERROR');
+  }
   let windowStart = new Date(row.window_start);
   let attempts = Number(row.attempts);
   let blockedUntil = row.blocked_until ? new Date(row.blocked_until) : null;
@@ -138,19 +149,23 @@ export class AuthService {
     try {
       await client.query('BEGIN');
 
-      await client.query(
-        'INSERT INTO auth_login_limits (bucket_key) VALUES ($1) ON CONFLICT (bucket_key) DO NOTHING',
-        [identityKey]
-      );
+      // Mismo upsert atomico con RETURNING que `preLoginRateLimit`: elimina la
+      // carrera INSERT/SELECT que podia dejar `row` en undefined y provocar 500.
       const limitResult = await client.query<{
         window_start: Date;
         attempts: number;
         blocked_until: Date | null;
       }>(
-        'SELECT window_start, attempts, blocked_until FROM auth_login_limits WHERE bucket_key = $1 FOR UPDATE',
-        [identityKey]
+        `INSERT INTO auth_login_limits (bucket_key, window_start)
+         VALUES ($1, $2)
+         ON CONFLICT (bucket_key) DO UPDATE SET actualizado_en = NOW()
+         RETURNING window_start, attempts, blocked_until`,
+        [identityKey, now]
       );
       const row = limitResult.rows[0];
+      if (!row) {
+        throw new AppError('Inconsistencia en el limitador de inicio de sesion', 500, 'INTERNAL_ERROR');
+      }
       let windowStart = new Date(row.window_start);
       let attempts = Number(row.attempts);
       let blockedUntil = row.blocked_until ? new Date(row.blocked_until) : null;

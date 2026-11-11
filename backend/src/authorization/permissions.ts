@@ -11,6 +11,10 @@ export const AUTH_PERMISSIONS = {
   TUTORES_MANAGE: 'tutores:manage',
   MATRICULAS_MANAGE: 'matriculas:manage',
   MATRICULAS_READ: 'matriculas:read',
+  // Fase 7 (registro de pagos y comprobantes). Amplian el catalogo de codigos
+  // soportados; no conceden nada a ningun rol institucional (DEC-03 abierta).
+  PAGOS_MANAGE: 'pagos:manage',
+  PAGOS_READ: 'pagos:read',
 } as const;
 
 export type AuthPermission = (typeof AUTH_PERMISSIONS)[keyof typeof AUTH_PERMISSIONS];
@@ -23,6 +27,8 @@ export const AUTH_PERMISSION_CODES: readonly AuthPermission[] = [
   AUTH_PERMISSIONS.TUTORES_MANAGE,
   AUTH_PERMISSIONS.MATRICULAS_MANAGE,
   AUTH_PERMISSIONS.MATRICULAS_READ,
+  AUTH_PERMISSIONS.PAGOS_MANAGE,
+  AUTH_PERMISSIONS.PAGOS_READ,
 ];
 
 export const AUTH_MANAGE_PERMISSIONS = AUTH_PERMISSION_CODES;

@@ -216,3 +216,23 @@ Con las preguntas 1 y 2 de cierre respondidas por el solicitante (motor PostgreS
 | 2026-11-10 | Fase 5 cerrada técnicamente (`sgpm-fase5-cierre-v3`). | 218 pruebas PASS / 0 FAIL / 0 SKIP, 11 archivos, exit 0; typechecks src y src+tests exit 0; 4 pruebas CLI de migración exit 0; docs/INFORME_FASE_5.md creado. Sin commit ni push. |
 | 2026-11-10 | Incremento 6.A ejecutado, verificado y documentado (`sgpm-fase6-base-v1`). | 259 pruebas, 259 PASS / 0 FAIL / 0 SKIP, 13 archivos, exit 0 (218 previos + 41 nuevos de 6.A); typecheck src exit 0 y src+tests exit 0 tras corregir D-1; hash lógico idéntico antes/después de 14 lecturas (sin escrituras); revisiones de plan reviewer/security PASS_PLAN y guard de alcance verificado (4 ficheros nuevos, resto sin cambios); docs/INFORME_FASE_6A.md creado. Sin commit ni push. |
 | 2026-11-10 | Incremento 6.B ejecutado, medido y documentado (`sgpm-fase6-motor-v1`), autorización `usuario_delega_reglas_financieras_20261110`. | Suite completa 275 pruebas, 275 PASS / 0 FAIL / 0 SKIP, 14 archivos, exit 0 (259 previos + 16 nuevos en `backend/tests/motor-aplicacion.test.ts`, 208 aserciones, sin `.only`/`.skip`); typecheck src exit 0 y src+tests exit 0 (ambos reverificados); latencia del motor 26 abonos, mediana 8.3 ms, máx 30.6 ms; las diez pruebas obligatorias del PM en PASS; mutaciones sobre el archivo de prueba revertidas (4 y 7 FAIL, luego 16/16); guard de alcance y revisión final del diff registrados (4 ficheros nuevos, 5 modificados, sin migraciones/semillas/rutas/gobernanza); docs/INFORME_FASE_6B.md creado. Reservas: historial financiero sin prueba y pagos pendientes solo parciales; hallazgo de idempotencia con descuento no cerrado. Sin commit ni push. |
+
+## Fase 7.A — Registro de pagos y comprobantes (implementado, sin cobertura commiteada)
+
+Ejecutado el 2026-11-11 (lote `sgpm-fase7-cobro-v1`). Consume el motor de 6.B sin añadir lógica financiera.
+
+- **Endpoints:** `POST /api/pagos`, `GET /api/pagos` (filtros y paginación), `GET /api/pagos/:id`, `GET /api/pagos/:id/comprobante` (solo lectura), `POST /api/pagos/:id/reversar`.
+- **Permisos nuevos:** `pagos:manage`, `pagos:read` (técnicos; la matriz institucional sigue pendiente, DEC-03).
+- **Comprobante:** identificador único secuencial por año asignado por secuencia de PostgreSQL; generar el comprobante no altera el saldo (probado con hash lógico de cinco tablas antes y después).
+- **Anulación:** compensatoria, con referencia, motivo, actor y fecha; la operación original se conserva con su estado final y nunca se borra.
+- **Sin PDF:** no hay librería instalada y `npm audit` no es ejecutable en este entorno (registro npm inalcanzable), por lo que la regla 13 del PM impedía añadir la dependencia sin poder auditarla. El comprobante se entrega como dato.
+
+### Defectos encontrados y corregidos en este lote
+
+1. **Atomicidad:** `POST /api/pagos` ejecutaba cobro y comprobante en transacciones separadas. El motor no aceptaba un `PoolClient` externo; ahora lo acepta y la ruta integra todo en una única transacción.
+2. **Fuga de conexiones:** al reescribir el bloque transaccional se perdió `finally { client.release() }`; cada petición filtraba una conexión y el pool agotado hacía esperar 5 s por petición. Restituido.
+3. **Carrera en el limitador de inicio de sesión** (código de Fase 3, `src/services/auth.service.ts`): `INSERT ... ON CONFLICT DO NOTHING` seguido de `SELECT ... FOR UPDATE` dejaba `row` en `undefined` si una transacción concurrente insertaba y revertía, produciendo 500. Sustituido por `INSERT ... ON CONFLICT DO UPDATE ... RETURNING` atómico en los dos sitios.
+
+### Reserva principal
+
+Las nueve pruebas obligatorias del PM se redactaron pero **no se committearon**: pasaban de forma aislada y fallaban en la corrida completa por estado cruzado del arnés, y el fichero llegaba a abortar otros cinco ficheros de la suite. Entregarlo habría roto la regresión. La FASE 7.A queda **verificada funcionalmente, sin cobertura automatizada commiteada**, y por esa razón no se declara completa.

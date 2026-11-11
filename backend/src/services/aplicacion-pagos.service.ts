@@ -131,7 +131,8 @@ export class AplicacionPagosService {
    */
   async aplicarAbono(
     datos: AplicarAbonoInput,
-    actorId: number
+    actorId: number,
+    clienteExterno?: PoolClient
   ): Promise<AplicarAbonoResultado> {
     this.verificarPoliticasImplementadas();
 
@@ -142,9 +143,21 @@ export class AplicacionPagosService {
     const idempotenciaKey = this.normalizarIdempotenciaKey(datos.idempotencia_key);
     const usuarioId = this.actorDePago(actorId);
 
-    const client = await getPool().connect();
+    // Transaccion prestada: si la ruta ya abrio una y nos pasa su PoolClient,
+    // el motor se integra en ELLA (mismo patron que matricula.service.crear) y
+    // no abre ni cierra nada: BEGIN/COMMIT/ROLLBACK son del llamador. Sin este
+    // parametro el pago y el comprobante caerian en transacciones distintas y
+    // el PM ("una operacion de pago debe ejecutarse de forma atomica") no se
+    // cumpliria: un fallo al emitir dejaria el pago registrado sin comprobante.
+    const transaccionPrestada =
+      clienteExterno !== undefined && clienteExterno !== null;
+    const client: PoolClient = transaccionPrestada
+      ? (clienteExterno as PoolClient)
+      : await getPool().connect();
     try {
-      await client.query('BEGIN');
+      if (!transaccionPrestada) {
+        await client.query('BEGIN');
+      }
       await client.query('SELECT pg_advisory_xact_lock($1)', [ADVISORY_LOCK_KEY]);
 
       // 1. Matricula (y su estudiante, columna NOT NULL de `pagos`).
@@ -193,7 +206,7 @@ export class AplicacionPagosService {
             },
             client
           );
-          await client.query('COMMIT');
+          if (!transaccionPrestada) { await client.query('COMMIT'); }
           return {
             pago_id: previo.id,
             estudiante_id: previo.estudiante_id,
@@ -372,7 +385,7 @@ export class AplicacionPagosService {
         client
       );
 
-      await client.query('COMMIT');
+      if (!transaccionPrestada) { await client.query('COMMIT'); }
 
       return {
         pago_id: pago.id,
@@ -386,10 +399,14 @@ export class AplicacionPagosService {
         cuotas_saldadas: cuotasSaldadas,
       };
     } catch (error) {
-      await client.query('ROLLBACK').catch(() => undefined);
+      if (!transaccionPrestada) {
+        await client.query('ROLLBACK').catch(() => undefined);
+      }
       throw error;
     } finally {
-      client.release();
+      if (!transaccionPrestada) {
+        client.release();
+      }
     }
   }
 
