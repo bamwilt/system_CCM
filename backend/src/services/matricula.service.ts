@@ -2,6 +2,7 @@ import { PoolClient } from 'pg';
 import { getPool } from '../config/database';
 import { AppError } from '../middleware/errorHandler';
 import { hashToken } from '../utils/authCrypto';
+import { politicasFinancieras } from '../dominio/politicas-financieras';
 import {
   MatriculaRepository,
   Matricula,
@@ -15,8 +16,40 @@ export interface PlanPagoConfig {
   fechas_vencimiento: string[];
 }
 
+/**
+ * Descuento autorizado recibido en la peticion (D05 CU-01 / DEC-07 / DEC-20).
+ * El porcentaje es CADENA DECIMAL EXACTA y `autorizado_por` es obligatorio:
+ * el sistema registra quien autorizo, no decide si el descuento es legitimo.
+ */
+export interface DescuentoAutorizadoInput {
+  porcentaje: string;
+  autorizado_por: string;
+}
+
+/**
+ * Descuento tal como queda aplicado y registrado. Los importes son cadenas
+ * exactas calculadas por PostgreSQL (NUNCA aritmetica de JavaScript).
+ */
+export interface DescuentoAplicado {
+  porcentaje: string;
+  autorizado_por: string;
+  /** Parametro de politica que permitio aplicarlo en este momento. */
+  politica: string;
+  monto_tarifa: string;
+  monto_cuota: string;
+  descuento_por_cuota: string;
+  /** false con la politica vigente: el descuento NO es dinero cobrado. */
+  contabilizado_como_efectivo: boolean;
+}
+
 export interface CrearMatriculaDatos extends CreateMatriculaInput {
   plan_pago: PlanPagoConfig;
+  /**
+   * Descuento autorizado ANTES de generar el plan (opcional). Ausente = sin
+   * descuento: `porcentajeDescuentoPorDefecto` es 'ninguno' y ningun
+   * porcentaje se aplica en silencio.
+   */
+  descuento?: DescuentoAutorizadoInput;
 }
 
 export interface CrearMatriculaResultado {
@@ -76,6 +109,14 @@ const MIN_CUOTAS = 1;
 const MAX_CUOTAS = 120;
 const ESTADOS_PERMITIDOS = ['ACTIVA', 'DESACTIVADA', 'COMPLETADA'];
 
+/**
+ * Forma exacta del porcentaje de descuento, identica a la del validador de
+ * entrada (`matricula.schema.ts`) y a la de `politicas-financieras`: sin
+ * signo, sin ceros a la izquierda, sin notacion cientifica, 0..100. La
+ * comprueba tambien el servicio porque no depende de que el llamador sea HTTP.
+ */
+const PORCENTAJE_DESCUENTO = /^(?:0|[1-9]\d{0,2})(?:\.\d{1,4})?$/;
+
 export class MatriculaService {
   constructor(
     private readonly matriculaRepo: MatriculaRepository = new MatriculaRepository()
@@ -90,6 +131,16 @@ export class MatriculaService {
    * clave se resuelve PRIMERO (dentro de la misma transaccion y con el mismo
    * PoolClient) para que un reintento no genere una segunda matricula, un
    * segundo plan de pago ni nuevas mensualidades.
+   *
+   * Descuento autorizado (D05 CU-01 / DEC-07 / DEC-20): si la peticion trae
+   * `descuento` y la politica lo permite en este momento
+   * (`politicaDescuento = 'antes_de_generar_el_plan'`), el importe de cada
+   * cuota se calcula con el descuento aplicado ANTES de generar el plan y se
+   * almacena en `planes_pago.monto_cuota` y en `mensualidades.monto_original`.
+   * La fila de `tarifas` NO se modifica. El descuento NO se contabiliza como
+   * efectivo recibido (`descuentoComoEfectivo = false`) y queda trazado en la
+   * auditoria de la matricula. Sin `descuento` en la peticion no se aplica
+   * ningun porcentaje: `porcentajeDescuentoPorDefecto` es 'ninguno'.
    */
   async crear(
     datos: CrearMatriculaDatos,
@@ -255,10 +306,25 @@ export class MatriculaService {
     if (tarifa.rows[0].anio_lectivo_id !== datos.anio_lectivo_id) {
       throw new AppError('Tarifa no pertenece al ano lectivo', 400, 'BAD_REQUEST');
     }
-    const montoCuota = tarifa.rows[0].monto; // NUMERIC exacto como string
-    const montoNum = Number(montoCuota);
+    const montoTarifa = tarifa.rows[0].monto; // NUMERIC exacto como string
+    const montoNum = Number(montoTarifa);
     if (!Number.isFinite(montoNum) || montoNum <= 0) {
       throw new AppError('Monto de tarifa invalido', 400, 'BAD_REQUEST');
+    }
+    // Sin descuento, el importe de la cuota es EXACTAMENTE el de la tarifa
+    // (comportamiento previo intacto). Con descuento autorizado se sustituye
+    // por el calculado en PostgreSQL (paso 6b).
+    let montoCuota = montoTarifa;
+
+    // 6b. Descuento autorizado ANTES de generar el plan (D05 CU-01 / DEC-20).
+    //     Se resuelve dentro de la misma transaccion, antes de escribir nada:
+    const descuentoAplicado = await this.aplicarDescuentoSiCorresponde(
+      datos.descuento,
+      tarifa.rows[0].id,
+      client
+    );
+    if (descuentoAplicado !== null) {
+      montoCuota = descuentoAplicado.monto_cuota;
     }
 
     // 7. Fechas: reales, unicas, ordenadas y dentro del rango del ano lectivo
@@ -322,7 +388,9 @@ export class MatriculaService {
       throw error;
     }
 
-    // 9. Plan de pago con snapshot de tarifa (tarifa_id, moneda) y monto_cuota existente
+    // 9. Plan de pago con snapshot de tarifa (tarifa_id, moneda) y el importe
+    //    de la cuota ya calculado: el de la tarifa, o el de la tarifa menos el
+    //    descuento autorizado (paso 6b). Lo calculo PostgreSQL, no JavaScript.
     const planResult = await client.query<{ id: number }>(
       `INSERT INTO planes_pago (matricula_id, tarifa_id, moneda, total_cuotas, monto_cuota)
        VALUES ($1, $2, $3, $4, $5) RETURNING id`,
@@ -330,7 +398,9 @@ export class MatriculaService {
     );
     const planPagoId = planResult.rows[0].id;
 
-    // 10. Todas las cuotas con monto exacto de la tarifa (sin division JS ni redondeo)
+    // 10. Todas las cuotas con el mismo importe exacto de la cuota (sin
+    //     division JS ni redondeo): el de la tarifa, o con el descuento
+    //     autorizado ya aplicado. Ninguna cuota se divide ni se prorratea.
     for (let i = 0; i < totalCuotas; i++) {
       await client.query(
         `INSERT INTO mensualidades (
@@ -343,19 +413,37 @@ export class MatriculaService {
 
     // 11. Auditoria dentro de la misma transaccion. Nunca se guarda la clave
     //     cruda: solo un hash SHA-256 truncado cuando la peticion trae clave.
+    const detalleAuditoria: Record<string, unknown> = {
+      resultado: 'exito',
+      total_cuotas: totalCuotas,
+      ...(idempotencyKey.length > 0
+        ? { idempotency_key_hash: this.hashIdempotencyKey(idempotencyKey) }
+        : {}),
+    };
+    if (descuentoAplicado !== null) {
+      // Trazabilidad del descuento: NO hay tabla ni columna nueva (no hay
+      // migracion). Queda en la auditoria de la matricula, visible en
+      // GET /api/matriculas/:id/historial, con el porcentaje, quien autorizo
+      // y los importes exactos (tarifa, cuota con descuento y descuento por
+      // cuota). El importe descontado es auditable contra `tarifas.monto`
+      // mediante el snapshot `planes_pago.tarifa_id`.
+      detalleAuditoria.descuento = {
+        porcentaje: descuentoAplicado.porcentaje,
+        autorizado_por: descuentoAplicado.autorizado_por,
+        politica: descuentoAplicado.politica,
+        monto_tarifa: descuentoAplicado.monto_tarifa,
+        monto_cuota: descuentoAplicado.monto_cuota,
+        descuento_por_cuota: descuentoAplicado.descuento_por_cuota,
+        contabilizado_como_efectivo: descuentoAplicado.contabilizado_como_efectivo,
+      };
+    }
     await this.matriculaRepo.registrarAuditoria(
       {
         usuarioId: actorId,
         accion: 'matricula_crear',
         entidad: 'matriculas',
         entidadId: matricula.id,
-        detalle: {
-          resultado: 'exito',
-          total_cuotas: totalCuotas,
-          ...(idempotencyKey.length > 0
-            ? { idempotency_key_hash: this.hashIdempotencyKey(idempotencyKey) }
-            : {}),
-        },
+        detalle: detalleAuditoria,
       },
       client
     );
@@ -374,6 +462,112 @@ export class MatriculaService {
    */
   private hashIdempotencyKey(key: string): string {
     return hashToken(key).slice(0, 16);
+  }
+
+  /**
+   * Descuento autorizado aplicado ANTES de generar el plan (D05 CU-01
+   * alternativo / DEC-07 / DEC-20). Devuelve `null` cuando la peticion no
+   * trae descuento: la politica `porcentajeDescuentoPorDefecto` es 'ninguno',
+   * de modo que NINGUN porcentaje se aplica sin que venga explicito en la
+   * peticion (nunca en silencio).
+   *
+   * Reglas comprobadas aqui (todas antes de escribir nada, dentro de la misma
+   * transaccion):
+   * - La politica vigente debe permitir este momento del descuento
+   *   (`politicaDescuento = 'antes_de_generar_el_plan'`). Otra politica se
+   *   rechaza con 400: no se ignora un descuento recibido en silencio.
+   * - `autorizado_por` es obligatorio: el sistema registra QUIEN autorizo,
+   *   no decide si el descuento es legitimo (DEC-07).
+   * - El porcentaje es una cadena decimal exacta (sin signo, sin notacion
+   *   cientifica, 0..100). No se convierte a numero.
+   * - El importe y el redondeo los resuelve PostgreSQL
+   *   (`calcularMontoCuotaConDescuento`): la tarifa no se modifica.
+   * - Un descuento que deja la cuota en 0.00 se RECHAZA (400): no existe regla
+   *   aprobada para un plan sin importe (propuesta tecnica pendiente de
+   *   ratificacion, igual que el resto de DEC-20).
+   */
+  private async aplicarDescuentoSiCorresponde(
+    descuento: DescuentoAutorizadoInput | null | undefined,
+    tarifaId: number,
+    client: PoolClient
+  ): Promise<DescuentoAplicado | null> {
+    if (descuento === undefined || descuento === null) {
+      return null; // 'ninguno': sin objeto explicito no hay descuento
+    }
+
+    if (politicasFinancieras.politicaDescuento !== 'antes_de_generar_el_plan') {
+      throw new AppError(
+        `La politica financiera vigente (politicaDescuento='${politicasFinancieras.politicaDescuento}') no permite aplicar un descuento al generar el plan de pago`,
+        400,
+        'BAD_REQUEST'
+      );
+    }
+
+    // Validacion defensiva: el schema ya rechaza estos casos en la ruta (400),
+    // pero el servicio no depende de que el llamador sea HTTP.
+    const porcentaje =
+      typeof descuento.porcentaje === 'string' ? descuento.porcentaje.trim() : '';
+    if (!PORCENTAJE_DESCUENTO.test(porcentaje)) {
+      throw new AppError('Porcentaje de descuento invalido', 400, 'BAD_REQUEST');
+    }
+    const [entero, fraccion] = porcentaje.split('.');
+    if (Number(entero) > 100 || (entero === '100' && fraccion !== undefined)) {
+      throw new AppError(
+        'Porcentaje de descuento fuera del rango 0..100',
+        400,
+        'BAD_REQUEST'
+      );
+    }
+    const autorizadoPor =
+      typeof descuento.autorizado_por === 'string' ? descuento.autorizado_por.trim() : '';
+    if (autorizadoPor.length === 0) {
+      throw new AppError(
+        'El descuento requiere autorizado_por: se registra quien lo autorizo',
+        400,
+        'BAD_REQUEST'
+      );
+    }
+    if (autorizadoPor.length > 255) {
+      throw new AppError(
+        'autorizado_por admite maximo 255 caracteres',
+        400,
+        'BAD_REQUEST'
+      );
+    }
+
+    // Importe y redondeo: PostgreSQL (NUMERIC exacto), nunca JavaScript.
+    const calculado = await this.matriculaRepo.calcularMontoCuotaConDescuento(
+      {
+        tarifaId,
+        porcentajeDescuento: porcentaje,
+        precisionDecimales: politicasFinancieras.precisionDecimales,
+      },
+      client
+    );
+    if (calculado === null) {
+      throw new AppError(
+        'Tarifa no encontrada para aplicar el descuento',
+        400,
+        'BAD_REQUEST'
+      );
+    }
+    if (!calculado.deja_monto_positivo) {
+      throw new AppError(
+        'El descuento deja el importe de la cuota en 0.00: se rechaza el descuento (no hay regla aprobada para un plan sin importe)',
+        400,
+        'BAD_REQUEST'
+      );
+    }
+
+    return {
+      porcentaje,
+      autorizado_por: autorizadoPor,
+      politica: politicasFinancieras.politicaDescuento,
+      monto_tarifa: calculado.monto_tarifa,
+      monto_cuota: calculado.monto_cuota,
+      descuento_por_cuota: calculado.descuento_por_cuota,
+      contabilizado_como_efectivo: politicasFinancieras.descuentoComoEfectivo,
+    };
   }
 
   /**

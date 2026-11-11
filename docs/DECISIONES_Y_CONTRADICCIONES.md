@@ -175,6 +175,30 @@ Registro de hallazgos conocidos que **no** se resolvieron en el lote `sgpm-fase5
 
 **Actualización de la sesión de documentación (2026-11-06):** las preguntas 1 y 2 quedaron respondidas por el solicitante (motor PostgreSQL con señal «psql»; desarrollo NUEVO sin importar `system_CCM`). Las preguntas 3–6 permanecen abiertas.
 
+### DEC-20 — Línea base técnica del motor financiero (propuesta del desarrollador)
+
+- **Fuentes y cómo se resolvió cada punto:**
+  - **FIFO:** D02 P0101/CA-03, D05 RN-02 y D07 P0347 coinciden en *aplicar el abono a la cuota vencida más antigua, recalculando el saldo antes de pasar a la siguiente*. D07 P0128 acota a la *deuda del ciclo actual*. → **Orden por `fecha_vencimiento` ascendente; desempate por `numero_cuota` ascendente y después por `id` ascendente** (determinista y estable, sin depender del orden de inserción). → **Alcance: el plan del año académico de la matrícula**, no la deuda histórica completa del estudiante, porque cruzar años no tiene regla aprobada.
+  - **Mora:** D02 FR-038/CA-04 y D05 RN-03 coinciden en *vencimiento día 10, mora 10% desde el día 11*, y D05 P0227 precisa *una sola vez sobre el monto base de la cuota vencida no saldada*. D12 P0227 y Anexo D FUN-04 dicen *después del día 5*: **discrepancia no adoptada**, queda registrada. → **Día 10 de vencimiento; 10% desde el día 11; una sola vez sobre el monto base; no capitalizable** (reducir el saldo de una cuota no recalcula su mora).
+  - **Abono parcial:** D05 CU-02 permite que el sobrante pase a la cuota siguiente. → **Aplicación secuencial con remanente, sin generar saldo negativo en ninguna cuota.**
+  - **Excedente sobre la deuda total:** D10 §III define montos válidos ≤ deuda total y su endpoint ilustrativo rechaza el excedente. D05 CU-02 solo admite sobrante *entre cuotas*, no crédito global. → **Rechazar con error 400**: es la alternativa más conservadora y evita inventar "saldo a favor" sin norma.
+  - **Descuentos:** D05 CU-01 (alternativo) indica que el porcentaje autorizado se aplica **antes de generar el plan de pago**. D07 P0350 (sumar el descuento al efectivo) **no se adopta**. → **El descuento afecta al `monto_cuota` almacenado en el momento de generar el plan**; el porcentaje debe venir explícito y autorizado en la petición, y **no se contabiliza como efectivo recibido**. Los porcentajes 15/10/50/25% de D07 son ejemplos didácticos, no se adoptan.
+  - **Moneda:** D02 Anexo B usa C$; D05/D10 usan `$`; D12/D13 usan USD únicamente para la modelación financiera. → **Una moneda operativa por plan, la ya almacenada en `planes_pago.moneda`**; sin conversión y sin default (las filas legacy quedan `null`).
+  - **Precisión y redondeo:** D09 propone `DECIMAL(10,2)`, centavos y aritmética exacta, y D02/D09 exigen evitar el error de redondeo flotante. El modo de redondeo no está fijado por ninguna fuente. → **`NUMERIC(12,2)` en base de datos, aritmética exacta de PostgreSQL y strings exactos en TypeScript; redondeo a dos decimales realizado por PostgreSQL (`half-up`), nunca en JavaScript.** Prohibido `Number`/`parseFloat` sobre importes.
+  - **Cancelación:** una cuota con `saldo_pendiente = 0` pasa a estado `PAGADA`; la mora ya aplicada se conserva y no se borra.
+- **Alternativas consideradas y descartadas:** día 6 de mora (D12), saldo a favor por excedente (sin fuente), descuento posterior a la generación del plan (contradice D05 CU-01), multimoneda con conversión (sin regla institucional), redondeo en JavaScript (prohibido por la exactitud requerida).
+- **Propuesta:** esta línea base permite implementar y **probar** el motor con valores deterministas. **No es política institucional.** Queda parametrizada (día de corte, porcentaje de mora, ámbito FIFO, tratamiento del excedente) de forma que ratificarla o corregirla sea un cambio de configuración, no de código. Cuando el colegio ratifique o modifique, se actualiza esta entrada con ID, decisor, fecha y evidencia.
+- **Autoría de la decisión:** propuesta técnica del desarrollador, **delegada explícitamente por el solicitante** ("lo de reglas mora fifoinvestígalas tú, yo no tengo nada de reglas institucionales, te lo dejo a tu criterio", 2026-11-10). No sustituye la ratificación de Dirección/cobros ni constituye acta del colegio.
+- **Bloquea:** nada para implementación y pruebas; bloquea la **aceptación institucional** de importes finales hasta ratificación (vinculado a DEC-04/05/06/07/08).
+- **Responsable:** cobros/Dirección (ratificación pendiente); propuesta: equipo técnico. **Estado: PROPUESTA TÉCNICA; RATIFICACIÓN INSTITUCIONAL PENDIENTE.**
+
+### Nota de la FASE 6.B (2026-11-10) — hallazgo no cerrado, extensión de DEC-17
+
+- **Hallazgo:** con `idempotency_key`, un *replay* que lleva **otro porcentaje de descuento** devuelve el **plan original**, no el plan que la nueva petición describiría. Medido en el lote `sgpm-fase6-motor-v1`: un *replay* con 50 % sobre una matrícula creada con 10 % devolvió `900.00`.
+- **Causa registrada:** la comparación de identidad del *replay* sigue siendo `(estudiante, año, grado)` y **no** incluye el `plan_pago` ni el descuento. Es la misma identidad de la FASE 5 (hallazgo no cerrado de DEC-17), trasladada al motor de abonos de 6.B, donde el plan ya existe en el momento del *replay*.
+- **Alcance:** no genera pagos, aplicaciones ni cuotas duplicados (el *replay* no reescribe nada); el efecto es que el descuento distinto se acepta sin aplicarse y sin aviso de discrepancia.
+- **Estado:** **HALLAZGO REGISTRADO, NO CERRADO**; se remite al máster junto con el cierre documental de 6.B ([INFORME_FASE_6B.md](INFORME_FASE_6B.md)). No se corrige el código ni se reescribe el hallazgo de DEC-17 desde esta subtarea.
+
 ## Registro de aprobación
 
 Sin decisiones aprobadas en esta sesión. Al responder, incorporar ID, alternativa elegida, alcance de la autorización, fecha y evidencia; no convertir una autorización técnica del solicitante en acta del colegio. En esta sesión se registraron confirmaciones técnicas del solicitante (motor y origen de desarrollo) sin que ello constituya aprobación institucional ni decisión adoptada del colegio.

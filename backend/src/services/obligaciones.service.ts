@@ -1,12 +1,20 @@
 import { AppError } from '../middleware/errorHandler';
 import {
   ObligacionesRepository,
+  CuotaPendienteProyeccion,
   CuotaProyeccion,
+  EstadosPresentesProyeccion,
   ObligacionesRow,
+  PagoProyeccion,
+  PendientesRow,
   PlanProyeccion,
+  HistorialRow,
   esIdSeguro32,
   proyectarDetalleCuotas,
+  proyectarEstadosPresentes,
+  proyectarPagos,
   proyectarPlan,
+  proyectarPlanPendiente,
 } from '../repositories/obligaciones.repository';
 
 /**
@@ -26,6 +34,23 @@ import {
  *   - CON_OBLIGACIONES: detalle real y agregado real del mismo snapshot.
  *   - INTEGRIDAD_INVALIDA: importes o fechas no confiables (NaN/infinito incluidos),
  *     sin resumen y sin normalizar nada a cero.
+ *
+ * Extension 6.B (mismo servicio, mismas disciplinas, SOLO LECTURA):
+ *
+ *   6. `proyectarPendientes`: cuotas cuyo estado ALMACENADO no es terminal y
+ *      cuyo `saldo_pendiente` almacenado es mayor que cero. La condicion se
+ *      deriva de lo guardado: no se recalcula mora, no se inventa vencimiento,
+ *      no se normaliza nada. Los estados terminales son una lista EXPLICITA,
+ *      ESTRECHA y documentada (`ESTADOS_TERMINALES_CUOTA`): solo `PAGADA`.
+ *      Cualquier otro estado almacenado —incluido uno que esta proyeccion no
+ *      reconoce— NO se trata como terminal (desconocido no equivale a cerrado)
+ *      y se superficializa con su conteo en `estados_presentes` /
+ *      `estados_no_reconocidos` en lugar de clasificarse en silencio.
+ *
+ *   7. `proyectarHistorial`: pagos registrados contra la matricula con sus
+ *      medios y aplicaciones, importes como texto exacto y `fecha_pago`
+ *      (TIMESTAMPTZ) proyectado en UTC explicito. Sin pagos, la lista es
+ *      vacia explicita: no es error ni resumen inventado.
  */
 
 /** Saldo total proyectado cuando no hay nada que sumar (no es dato inventado). */
@@ -39,6 +64,46 @@ const NUMERICO_EXACTO = /^-?\d+(?:\.\d+)?$/;
 
 /** Fecha plana ISO: `YYYY-MM-DD`. */
 const FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Fecha-hora plana en UTC: `YYYY-MM-DD HH24:MI:SS`. La proyecta el
+ * repositorio con `AT TIME ZONE 'UTC'` (ver decision 7 de la cabecera del
+ * repositorio): esta forma es fija, sin zona embebida, y comparable
+ * lexicograficamente en orden cronologico.
+ */
+const FECHA_HORA_ISO_UTC = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+
+/**
+ * Estados almacenados de `mensualidades.estado` tratados como TERMINALES:
+ * la cuota deja de contarse como pendiente aunque conserve saldo.
+ *
+ * Lista EXPLICITA y ESTRECHA a proposito. Solo `PAGADA`:
+ * - es el estado terminal canonico de una cuota liquidada (el motor de pagos
+ *   aun no existe: no se inventa mas vocabulario del que el proyecto tiene);
+ * - dar de alta aqui un estado no reconocido haria desaparecer cuotas con
+ *   saldo sin dejar rastro, que es exactamente lo que esta proyeccion debe
+ *   evitar. Un estado desconocido NUNCA se promueve a terminal: se expone
+ *   con su conteo en `estados_presentes`.
+ *
+ * La lista vacia (`[]`) dejaria pending cualquier cuota con saldo: la politica
+ * la fija el dominio, no el repositorio.
+ */
+export const ESTADOS_TERMINALES_CUOTA: readonly string[] = ['PAGADA'];
+
+/**
+ * Estados almacenados NO terminales que esta proyeccion reconoce. Hoy el
+ * unico que el proyecto escribe es `PENDIENTE` (default del esquema y alta de
+ * cuotas en `matricula.service`). Reconocer un estado NO cambia la condicion
+ * de pendiente (todo lo no terminal ya es candidato): solo afecta a
+ * `estados_no_reconocidos`, la lista de aviso.
+ */
+export const ESTADOS_NO_TERMINALES_RECONOCIDOS: readonly string[] = ['PENDIENTE'];
+
+/** Vocabulario almacenado que la proyeccion sabe nombrar. */
+export const ESTADOS_CUOTA_RECONOCIDOS: readonly string[] = [
+  ...ESTADOS_TERMINALES_CUOTA,
+  ...ESTADOS_NO_TERMINALES_RECONOCIDOS,
+];
 
 /** Motivos tecnicos por los que una proyeccion no es confiable. */
 export type MotivoIntegridadInvalida =
@@ -113,6 +178,99 @@ export type ProyeccionObligaciones =
   | ProyeccionConObligaciones
   | ProyeccionIntegridadInvalida;
 
+/*
+ * -------------------------------------------------------------------------
+ * Proyeccion de PENDIENTES (6.B, solo lectura)
+ * -------------------------------------------------------------------------
+ *
+ * La condicion de pendiente se deriva de datos ALMACENADOS:
+ * `estado <> ALL(ESTADOS_TERMINALES_CUOTA)` AND `saldo_pendiente > 0`. No se
+ * recalcula mora, no se compara contra `fecha_vencimiento`, no se normaliza
+ * ningun importe. `plan: null` distingue "matricula sin plan" de "plan sin
+ * cuotas pendientes" (lista vacia en ese caso); los dos son explicitos.
+ */
+
+/** La matricula no existe: no equivale a "nada pendiente" y no lleva detalle. */
+export interface ProyeccionPendientesMatriculaInexistente {
+  estado: 'MATRICULA_INEXISTENTE';
+  matricula_id: number;
+}
+
+/** Pendientes proyectados: lista almacenada, puede estar vacia. */
+export interface ProyeccionPendientesProyectadas {
+  estado: 'PENDIENTES';
+  matricula_id: number;
+  plan: PlanProyeccion | null;
+  pendientes: CuotaPendienteProyeccion[];
+  cuotas_pendientes: number;
+  /** Todos los estados almacenados del plan con su conteo (superficie). */
+  estados_presentes: EstadosPresentesProyeccion[];
+  /** Estados almacenados fuera del vocabulario reconocido (aviso, no error). */
+  estados_no_reconocidos: string[];
+}
+
+/**
+ * Los datos de las cuotas pendientes no son confiables (importe no numerico
+ * —NaN, infinito— o fecha no ISO). Se conserva el detalle tal cual y no se
+ * normaliza nada a cero ni se descarta la cuota problematica.
+ */
+export interface ProyeccionPendientesIntegridadInvalida {
+  estado: 'INTEGRIDAD_INVALIDA';
+  matricula_id: number;
+  plan: PlanProyeccion | null;
+  pendientes: CuotaPendienteProyeccion[];
+  motivo: MotivoIntegridadInvalida;
+}
+
+/** Union discriminada: tres estados, sin negocio inventado. */
+export type ProyeccionPendientes =
+  | ProyeccionPendientesMatriculaInexistente
+  | ProyeccionPendientesProyectadas
+  | ProyeccionPendientesIntegridadInvalida;
+
+/*
+ * -------------------------------------------------------------------------
+ * Proyeccion de HISTORIAL FINANCIERO (6.B, solo lectura)
+ * -------------------------------------------------------------------------
+ *
+ * Pagos con `matricula_id` = la matricula consultada, con sus medios y
+ * aplicaciones tal como estan guardados. `fecha_pago` (TIMESTAMPTZ) se
+ * proyecta en UTC explicito: no hay zona horaria institucional configurada y
+ * el resultado no depende del servidor ni del cliente. Sin pagos: lista vacia
+ * explicita, no error ni resumen inventado.
+ */
+
+/** La matricula no existe: no equivale a "sin pagos" y no lleva lista. */
+export interface ProyeccionHistorialMatriculaInexistente {
+  estado: 'MATRICULA_INEXISTENTE';
+  matricula_id: number;
+}
+
+/** Historial proyectado: lista de pagos (posiblemente vacia). */
+export interface ProyeccionHistorialProyectado {
+  estado: 'HISTORIAL';
+  matricula_id: number;
+  matricula_estado: string;
+  pagos: PagoProyeccion[];
+}
+
+/**
+ * Algun pago proyectado no es confiable (importe no numerico o fecha no
+ * ISO). Se conservan los pagos tal cual, con el valor almacenado intacto.
+ */
+export interface ProyeccionHistorialIntegridadInvalida {
+  estado: 'INTEGRIDAD_INVALIDA';
+  matricula_id: number;
+  pagos: PagoProyeccion[];
+  motivo: MotivoIntegridadInvalida;
+}
+
+/** Union discriminada: tres estados, sin negocio inventado. */
+export type ProyeccionHistorial =
+  | ProyeccionHistorialMatriculaInexistente
+  | ProyeccionHistorialProyectado
+  | ProyeccionHistorialIntegridadInvalida;
+
 /**
  * `true` solo si el saldo total EXACTO es mayor que cero.
  *
@@ -133,6 +291,10 @@ function esImporteExacto(monto: unknown): monto is string {
 
 function esFechaIso(fecha: unknown): fecha is string {
   return typeof fecha === 'string' && FECHA_ISO.test(fecha);
+}
+
+function esFechaHoraIsoUtc(fecha: unknown): fecha is string {
+  return typeof fecha === 'string' && FECHA_HORA_ISO_UTC.test(fecha);
 }
 
 export class ObligacionesService {
@@ -272,6 +434,187 @@ export class ObligacionesService {
       tiene_saldo_positivo: false,
       cuotas_contadas: 0,
       moneda,
+    };
+  }
+
+  /**
+   * Proyeccion interna de cuotas PENDIENTES de UNA matricula.
+   *
+   * - El id se valida como entero seguro serial32 ANTES de cualquier consulta.
+   * - Se ejecuta UNA consulta parametrizada; la lista de estados terminales
+   *   viaja como parametro ($2), nunca interpolada en el SQL.
+   * - La condicion usa el estado y el saldo ALMACENADOS: no se recalcula
+   *   mora ni se inventa vencimiento.
+   * - Los errores tecnicos de base de datos se propagan sin convertirse en
+   *   estado de negocio ni en lista vacia.
+   */
+  async proyectarPendientes(matriculaId: number): Promise<ProyeccionPendientes> {
+    if (!esIdSeguro32(matriculaId)) {
+      throw new AppError('Identificador de matricula invalido', 400, 'BAD_REQUEST');
+    }
+
+    const fila = await this.repo.proyectarPendientes(matriculaId, ESTADOS_TERMINALES_CUOTA);
+    return this.clasificarPendientes(fila, matriculaId);
+  }
+
+  /**
+   * Proyeccion interna del HISTORIAL FINANCIERO de UNA matricula.
+   *
+   * - El id se valida como entero seguro serial32 ANTES de cualquier consulta.
+   * - Se ejecuta UNA consulta parametrizada (pagos + medios + aplicaciones en
+   *   la misma fila: no hay N+1).
+   * - Sin pagos la lista es vacia explicita; los errores tecnicos de base de
+   *   datos se propagan tal cual.
+   */
+  async proyectarHistorial(matriculaId: number): Promise<ProyeccionHistorial> {
+    if (!esIdSeguro32(matriculaId)) {
+      throw new AppError('Identificador de matricula invalido', 400, 'BAD_REQUEST');
+    }
+
+    const fila = await this.repo.proyectarHistorial(matriculaId);
+    return this.clasificarHistorial(fila, matriculaId);
+  }
+
+  private clasificarPendientes(
+    fila: PendientesRow | null,
+    matriculaId: number
+  ): ProyeccionPendientes {
+    if (fila === null) {
+      // No existe: explicitamente distinto de "nada pendiente" y sin detalle.
+      return { estado: 'MATRICULA_INEXISTENTE', matricula_id: matriculaId };
+    }
+
+    const plan = proyectarPlanPendiente(fila);
+
+    const detalle = proyectarDetalleCuotas(fila.pendientes);
+    if (detalle === null) {
+      return {
+        estado: 'INTEGRIDAD_INVALIDA',
+        matricula_id: matriculaId,
+        plan,
+        pendientes: [],
+        motivo: 'DETALLE_NO_PROYECTABLE',
+      };
+    }
+
+    const estadosPresentes = proyectarEstadosPresentes(fila.estados_presentes);
+    if (estadosPresentes === null) {
+      return {
+        estado: 'INTEGRIDAD_INVALIDA',
+        matricula_id: matriculaId,
+        plan,
+        pendientes: detalle,
+        motivo: 'DETALLE_NO_PROYECTABLE',
+      };
+    }
+
+    // Integridad: se detecta el problema sin destruir el valor almacenado.
+    for (const cuota of detalle) {
+      if (
+        !esImporteExacto(cuota.monto_original) ||
+        !esImporteExacto(cuota.monto_pagado) ||
+        !esImporteExacto(cuota.saldo_pendiente) ||
+        !esImporteExacto(cuota.mora_aplicada)
+      ) {
+        return {
+          estado: 'INTEGRIDAD_INVALIDA',
+          matricula_id: matriculaId,
+          plan,
+          pendientes: detalle,
+          motivo: 'IMPORTE_NO_NUMERICO',
+        };
+      }
+      if (!esFechaIso(cuota.fecha_vencimiento)) {
+        return {
+          estado: 'INTEGRIDAD_INVALIDA',
+          matricula_id: matriculaId,
+          plan,
+          pendientes: detalle,
+          motivo: 'FECHA_NO_ISO',
+        };
+      }
+    }
+
+    return {
+      estado: 'PENDIENTES',
+      matricula_id: matriculaId,
+      plan,
+      pendientes: detalle,
+      cuotas_pendientes: fila.cuotas_pendientes,
+      estados_presentes: estadosPresentes,
+      estados_no_reconocidos: estadosPresentes
+        .map((presente) => presente.estado)
+        .filter(
+          (estado, indice, todos) =>
+            todos.indexOf(estado) === indice && !ESTADOS_CUOTA_RECONOCIDOS.includes(estado)
+        ),
+    };
+  }
+
+  private clasificarHistorial(
+    fila: HistorialRow | null,
+    matriculaId: number
+  ): ProyeccionHistorial {
+    if (fila === null) {
+      // No existe: explicitamente distinto de "sin pagos" y sin lista.
+      return { estado: 'MATRICULA_INEXISTENTE', matricula_id: matriculaId };
+    }
+
+    const pagos = proyectarPagos(fila.pagos);
+    if (pagos === null) {
+      return {
+        estado: 'INTEGRIDAD_INVALIDA',
+        matricula_id: matriculaId,
+        pagos: [],
+        motivo: 'DETALLE_NO_PROYECTABLE',
+      };
+    }
+
+    // Integridad: se detecta el problema sin destruir el valor almacenado.
+    for (const pago of pagos) {
+      if (!esImporteExacto(pago.monto_total)) {
+        return {
+          estado: 'INTEGRIDAD_INVALIDA',
+          matricula_id: matriculaId,
+          pagos,
+          motivo: 'IMPORTE_NO_NUMERICO',
+        };
+      }
+      if (!esFechaHoraIsoUtc(pago.fecha_pago)) {
+        return {
+          estado: 'INTEGRIDAD_INVALIDA',
+          matricula_id: matriculaId,
+          pagos,
+          motivo: 'FECHA_NO_ISO',
+        };
+      }
+      for (const medio of pago.medios) {
+        if (!esImporteExacto(medio.monto)) {
+          return {
+            estado: 'INTEGRIDAD_INVALIDA',
+            matricula_id: matriculaId,
+            pagos,
+            motivo: 'IMPORTE_NO_NUMERICO',
+          };
+        }
+      }
+      for (const aplicacion of pago.aplicaciones) {
+        if (!esImporteExacto(aplicacion.monto_aplicado)) {
+          return {
+            estado: 'INTEGRIDAD_INVALIDA',
+            matricula_id: matriculaId,
+            pagos,
+            motivo: 'IMPORTE_NO_NUMERICO',
+          };
+        }
+      }
+    }
+
+    return {
+      estado: 'HISTORIAL',
+      matricula_id: matriculaId,
+      matricula_estado: fila.matricula_estado,
+      pagos,
     };
   }
 }

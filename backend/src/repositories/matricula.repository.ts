@@ -346,6 +346,62 @@ export class MatriculaRepository {
   }
 
   /**
+   * Importe de la cuota con el descuento AUTORIZADO aplicado, calculado y
+   * redondeado por PostgreSQL (NUMERIC exacto; `ROUND` half-up de DEC-20).
+   * Ninguna aritmetica ocurre en JavaScript: el porcentaje viaja como cadena
+   * exacta ($2::numeric) y se devuelve como texto exacto.
+   *
+   *   monto_cuota         = ROUND(tarifa * (100 - porcentaje) / 100, precision)
+   *   descuento_por_cuota = tarifa - monto_cuota           (exacto, tambien en PG)
+   *   deja_monto_positivo = monto_cuota > 0
+   *
+   * `precision` es un parametro de `politicas-financieras`
+   * (`precisionDecimales`); el almacenamiento final sigue siendo la columna
+   * NUMERIC(12,2) del esquema vivo.
+   *
+   * La fila de `tarifas` NO se modifica: la consulta es de solo lectura y la
+   * tarifa queda con su monto original intacto. Devuelve null solo si la
+   * tarifa dejo de existir dentro de la transaccion (el servicio la bloquea
+   * con FOR SHARE antes de llamar).
+   */
+  async calcularMontoCuotaConDescuento(
+    parametros: {
+      tarifaId: number;
+      porcentajeDescuento: string;
+      precisionDecimales: number;
+    },
+    client?: PoolClient
+  ): Promise<{
+    monto_tarifa: string;
+    monto_cuota: string;
+    descuento_por_cuota: string;
+    deja_monto_positivo: boolean;
+  } | null> {
+    const result = await this.executor(client).query<{
+      monto_tarifa: string;
+      monto_cuota: string;
+      descuento_por_cuota: string;
+      deja_monto_positivo: boolean;
+    }>(
+      `SELECT t.monto::text AS monto_tarifa,
+              d.monto_cuota::text AS monto_cuota,
+              (t.monto - d.monto_cuota)::text AS descuento_por_cuota,
+              (d.monto_cuota > 0) AS deja_monto_positivo
+         FROM tarifas t
+         CROSS JOIN LATERAL (
+           SELECT ROUND(t.monto * (100 - $2::numeric) / 100, $3::int) AS monto_cuota
+         ) AS d
+        WHERE t.id = $1`,
+      [
+        parametros.tarifaId,
+        parametros.porcentajeDescuento,
+        parametros.precisionDecimales,
+      ]
+    );
+    return result.rows.length > 0 ? result.rows[0] : null;
+  }
+
+  /**
    * Historial de auditoria de UNA matricula: filtra estrictamente por
    * entidad = 'matriculas' y entidad_id = $1 (ambos parametros ligados).
    * Orden cronologico ascendente por fecha, con id como desempate.
