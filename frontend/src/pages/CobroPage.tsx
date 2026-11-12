@@ -199,6 +199,7 @@ export default function CobroPage() {
       <div className="cobro">
         <div className="tarjeta">
           <form
+            className="cobro__form"
             onSubmit={(evento) => {
               evento.preventDefault();
               if (valido()) {
@@ -206,7 +207,7 @@ export default function CobroPage() {
               }
             }}
           >
-            <Campo etiqueta="Matrícula" identificador="matricula">
+            <Campo etiqueta="Matrícula" identificador="matricula" >
               <div style={{ display: 'flex', gap: 'var(--esp-2)' }}>
                 <input
                   id="matricula"
@@ -285,7 +286,8 @@ export default function CobroPage() {
           </form>
         </div>
 
-        <div className="tarjeta cobro__panel">
+        <div className="cobro__col">
+          <div className="tarjeta cobro__panel">
           <h3>Resumen de la operación</h3>
           <dl style={{ margin: 0 }}>
             <div className="cobro__resumen">
@@ -308,7 +310,8 @@ export default function CobroPage() {
             </div>
           </dl>
 
-          <h3 style={{ marginTop: 'var(--esp-5)' }}>Cuotas</h3>
+          <div className="cobro__seccion">
+            <h3>Cuotas</h3>
           {consultando ? (
             <Cargando texto="Consultando cuotas…" />
           ) : cuotas.length === 0 ? (
@@ -348,6 +351,13 @@ export default function CobroPage() {
               </tbody>
             </table>
           )}
+          </div>
+        </div>
+
+          <div className="cobro__panel--crecer">
+            <h3>Últimos cobros</h3>
+            <UltimosCobros />
+          </div>
         </div>
       </div>
 
@@ -399,5 +409,50 @@ export default function CobroPage() {
         </div>
       ) : null}
     </>
+  );
+}
+
+/** Cobros registrados hoy: informacion util, no espacio vacio. */
+function UltimosCobros() {
+  const [filas, setFilas] = useState<any[]>([]);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const hoy = new Date().toISOString().slice(0, 10);
+        const r = await listar<any>(`/reportes/pagos-por-periodo?desde=${hoy}&hasta=${hoy}&limite=8`);
+        setFilas(r.filas);
+      } catch {
+        setFilas([]);
+      }
+    })();
+  }, []);
+  if (filas.length === 0) {
+    return <p style={{ color: 'var(--texto-suave)', fontSize: 'var(--texto-md)' }}>Sin cobros hoy.</p>;
+  }
+  return (
+    <div className="tabla-envolvente">
+      <table className="tabla">
+        <thead>
+          <tr>
+            <th scope="col">Pago</th>
+            <th scope="col" className="tabla__numerico">Monto</th>
+            <th scope="col">Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filas.map((f) => (
+            <tr key={f.id}>
+              <td>#{f.id}</td>
+              <td className="tabla__numerico">{f.monto_total}</td>
+              <td>
+                <Etiqueta tipo={f.estado === 'REVERTIDO' || f.estado === 'ANULADO' ? 'peligro' : 'exito'} icono={f.estado === 'REVERTIDO' || f.estado === 'ANULADO' ? 'close' : 'check_circle'}>
+                  {f.estado}
+                </Etiqueta>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

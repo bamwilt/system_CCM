@@ -1,4 +1,4 @@
-@import url('/fonts/inter.css');
+@import url('/fonts/roboto.css');
 
 /* ==========================================================================
    ICONOS — Google Symbols (Material Symbols), subset autohospedado.
@@ -112,29 +112,29 @@
   --destacado: var(--morado-500);
   --destacado-sutil: var(--morado-100);
 
-  /* --- Tipografia (Inter, autohospedada). ------------------------------- */
-  --fuente: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* --- Tipografia (Roboto, autohospedada). ------------------------------ */
+  --fuente: 'Roboto', system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
   --fuente-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace;
 
-  --texto-xs: 0.75rem;      /* 12 */
-  --texto-sm: 0.8125rem;    /* 13 */
-  --texto-md: 0.875rem;     /* 14 */
-  --texto-base: 0.9375rem;  /* 15 */
-  --texto-lg: 1.0625rem;    /* 17 */
-  --texto-xl: 1.25rem;      /* 20 */
-  --texto-2xl: 1.5rem;      /* 24 */
-  --texto-3xl: 2rem;        /* 32 */
+  --texto-xs: 0.8125rem;    /* 13 */
+  --texto-sm: 0.875rem;     /* 14 */
+  --texto-md: 0.9375rem;    /* 15 */
+  --texto-base: 1rem;       /* 16 - base legible */
+  --texto-lg: 1.125rem;     /* 18 */
+  --texto-xl: 1.375rem;     /* 22 */
+  --texto-2xl: 1.625rem;    /* 26 */
+  --texto-3xl: 2.125rem;    /* 34 */
 
-  /* --- Espaciado (base 4). ---------------------------------------------- */
+  /* --- Espaciado (base 4, compacto para densidad de tabla). ------------- */
   --esp-1: 4px;
-  --esp-2: 8px;
-  --esp-3: 12px;
-  --esp-4: 16px;
-  --esp-5: 20px;
-  --esp-6: 24px;
-  --esp-8: 32px;
-  --esp-10: 40px;
-  --esp-12: 48px;
+  --esp-2: 6px;
+  --esp-3: 10px;
+  --esp-4: 14px;
+  --esp-5: 18px;
+  --esp-6: 22px;
+  --esp-8: 28px;
+  --esp-10: 36px;
+  --esp-12: 44px;
 
   /* --- Formas, profundidad y movimiento. -------------------------------- */
   --radio-xs: 4px;
@@ -163,7 +163,7 @@ body {
   margin: 0;
   font-family: var(--fuente);
   font-size: var(--texto-base);
-  line-height: 1.55;
+  line-height: 1.6;
   color: var(--texto);
   background: var(--fondo);
   -webkit-font-smoothing: antialiased;
@@ -178,7 +178,7 @@ h4 {
   margin: 0;
   line-height: 1.25;
   font-weight: 640;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.005em;
 }
 
 p {
@@ -374,17 +374,17 @@ a {
 /* --- Contenido ----------------------------------------------------------- */
 
 .contenido {
-  padding: var(--esp-8) var(--esp-10) var(--esp-12);
-  max-width: 1200px;
+  padding: var(--esp-6) var(--esp-8) var(--esp-8);
+  max-width: 1320px;
   width: 100%;
 }
 
 .contenido__cabecera {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: var(--esp-4);
-  margin-bottom: var(--esp-6);
+  margin-bottom: var(--esp-4);
   flex-wrap: wrap;
 }
 
@@ -395,8 +395,8 @@ a {
 
 .contenido__desc {
   color: var(--texto-suave);
-  font-size: var(--texto-base);
-  margin-top: var(--esp-1);
+  font-size: var(--texto-md);
+  margin-top: 2px;
 }
 
 /* ==========================================================================
@@ -408,7 +408,7 @@ a {
   border: 1px solid var(--borde);
   border-radius: var(--radio);
   box-shadow: var(--sombra-xs);
-  padding: var(--esp-5);
+  padding: var(--esp-4);
 }
 
 .tarjeta--interactiva {
@@ -428,7 +428,7 @@ a {
 
 .rejilla {
   display: grid;
-  gap: var(--esp-4);
+  gap: var(--esp-3);
 }
 
 .rejilla--2 {
@@ -444,7 +444,7 @@ a {
 }
 
 .rejilla--auto {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
 
 .indicador {
@@ -518,7 +518,7 @@ a {
   border: 1px solid transparent;
   border-radius: var(--radio-sm);
   font: inherit;
-  font-size: var(--texto-base);
+  font-size: var(--texto-md);
   font-weight: 550;
   cursor: pointer;
   white-space: nowrap;
@@ -601,7 +601,7 @@ a {
    ======================================================================== */
 
 .campo {
-  margin-bottom: var(--esp-4);
+  margin-bottom: var(--esp-3);
 }
 
 .campo__etiqueta {
@@ -705,13 +705,13 @@ select {
   letter-spacing: 0.05em;
   color: var(--texto-suave);
   text-align: left;
-  padding: var(--esp-3) var(--esp-4);
+  padding: var(--esp-2) var(--esp-3);
   border-bottom: 1px solid var(--borde);
   white-space: nowrap;
 }
 
 .tabla td {
-  padding: var(--esp-3) var(--esp-4);
+  padding: var(--esp-2) var(--esp-3);
   border-bottom: 1px solid var(--gris-100);
   vertical-align: middle;
 }
@@ -1068,10 +1068,10 @@ select {
   background: var(--superficie);
   border: 1px solid var(--borde);
   border-radius: var(--radio);
-  padding: var(--esp-4);
-  margin-bottom: var(--esp-5);
+  padding: var(--esp-3);
+  margin-bottom: var(--esp-4);
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: var(--esp-3) var(--esp-4);
   align-items: end;
   box-shadow: var(--sombra-xs);
@@ -1137,14 +1137,68 @@ select {
 
 .cobro {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
-  gap: var(--esp-6);
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.92fr);
+  gap: var(--esp-5);
+  align-items: stretch;
 }
 
+/* La columna derecha ocupa todo el alto y reparte el contenido, de modo que
+   no queda un hueco muerto debajo del resumen. */
 .cobro__panel {
-  position: sticky;
-  top: var(--esp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--esp-3);
+}
+
+.cobro__panel--crecer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cobro__panel--crecer > .tabla-envolvente {
+  flex: 1;
+  overflow: auto;
+}
+
+.cobro__seccion {
+  padding-top: var(--esp-4);
+  border-top: 1px solid var(--borde);
+}
+
+.cobro__seccion h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--esp-2);
+}
+
+.cobro__col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--esp-3);
+  min-width: 0;
+}
+
+/* Formulario denso: campos cortos en dos columnas, no una tira vertical. */
+.cobro__form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--esp-4);
+}
+
+.cobro__form .campo--ancho {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 1080px) {
+  .cobro__form {
+    grid-template-columns: 1fr;
+  }
+
+  .cobro__form .campo--ancho {
+    grid-column: auto;
+  }
 }
 
 .cobro__resumen {

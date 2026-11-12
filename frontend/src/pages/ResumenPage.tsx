@@ -116,7 +116,7 @@ export default function ResumenPage() {
         </div>
       ) : (
         <>
-          <div className="rejilla rejilla--4" style={{ marginBottom: 'var(--esp-8)' }}>
+          <div className="rejilla rejilla--4" style={{ marginBottom: 'var(--esp-5)' }}>
             <Indicador
               etiqueta="Recaudado hoy"
               valor={<Importe valor={recaudado.toFixed(2)} />}
@@ -196,8 +196,62 @@ export default function ResumenPage() {
               </table>
             </div>
           )}
+
+          <div className="contenido__cabecera" style={{ marginTop: 'var(--esp-6)', marginBottom: 'var(--esp-3)' }}>
+            <h2 style={{ fontSize: 'var(--texto-lg)' }}>Cobros de hoy</h2>
+            <Boton tipo="fantasma" icono="open_in_new" onClick={() => navegar('/cobro')}>
+              Registrar cobro
+            </Boton>
+          </div>
+          <UltimosCobrosResumen />
         </>
       )}
     </>
+  );
+}
+
+function UltimosCobrosResumen() {
+  const [filas, setFilas] = useState<any[]>([]);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const hoy = new Date().toISOString().slice(0, 10);
+        const r = await listar<any>(`/reportes/pagos-por-periodo?desde=${hoy}&hasta=${hoy}&limite=10`);
+        setFilas(r.filas);
+      } catch {
+        setFilas([]);
+      }
+    })();
+  }, []);
+  if (filas.length === 0) {
+    return <div className="tarjeta"><p style={{ color: 'var(--texto-suave)' }}>No se registraron cobros hoy.</p></div>;
+  }
+  return (
+    <div className="tabla-envolvente">
+      <table className="tabla">
+        <thead>
+          <tr>
+            <th scope="col">Pago</th>
+            <th scope="col">Matrícula</th>
+            <th scope="col" className="tabla__numerico">Monto</th>
+            <th scope="col">Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filas.map((f) => (
+            <tr key={f.id}>
+              <td>#{f.id}</td>
+              <td>{f.matricula_id}</td>
+              <td className="tabla__numerico"><Importe valor={f.monto_total} /></td>
+              <td>
+                <Etiqueta tipo={f.estado === 'REVERTIDO' || f.estado === 'ANULADO' ? 'peligro' : 'exito'} icono={f.estado === 'REVERTIDO' || f.estado === 'ANULADO' ? 'close' : 'check_circle'}>
+                  {f.estado}
+                </Etiqueta>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
