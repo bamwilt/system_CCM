@@ -2,7 +2,7 @@
 
 Fecha: 2026-11-11. Versión: 1.0.
 
-**FASE:** 7.A — Registro de pagos y comprobantes (incremento parcial).
+**FASE:** 7 — Registro de pagos y comprobantes.
 
 **OBJETIVO:** Exponer por HTTP el proceso de cobro ya implementado en el incremento 6.B —registro de pagos, búsqueda de operaciones, detalle, comprobantes y anulación compensatoria— sin añadir lógica financiera nueva y sin dependencias no verificables.
 
@@ -18,7 +18,7 @@ Funcionalidades del Prompt Maestro para la FASE 7 (diez en total) y su estado re
 | 4 | Aplicar abonos | Implementado | heredado de 6.B |
 | 5 | Calcular saldos | Implementado | heredado de 6.A |
 | 6 | Confirmar transacción | Implementado | 7.A (transacción única) |
-| 7 | Emitir comprobantes | Implementado como DATO | 7.A; el PDF queda pendiente |
+| 7 | Emitir comprobantes | Implementado | 7.A: como dato y en PDF
 | 8 | Consultar historial | Implementado | heredado de 6.B |
 | 9 | Buscar operaciones | Implementado | 7.A (`GET /api/pagos` con filtros) |
 | 10 | Anular operaciones autorizadas | Implementado | 7.A (reversión compensatoria) |
@@ -46,7 +46,7 @@ Reglas de seguridad financiera del PM:
 
 ## PRUEBAS EJECUTADAS
 
-- **Regresión completa:** `cd backend && npm test` → **16 archivos, 320 pruebas, 320 PASS / 0 FAIL / 0 SKIP, exit 0** (169 s). Línea base previa: 15 archivos y 297 pruebas; este lote añade **23 pruebas** en 1 archivo nuevo.
+- **Regresión completa:** `cd backend && npm test` → **16 archivos, 324 pruebas, 324 PASS / 0 FAIL / 0 SKIP, exit 0** (180 s). Línea base previa: 15 archivos y 297 pruebas; este lote añade **27 pruebas** en 1 archivo nuevo.
 - **Typecheck de fuente:** exit 0. **Typecheck de fuente + tests:** exit 0.
 - **Verificación funcional puntual** (no automatizada): 45 comprobaciones del implementador sobre base de datos scratch aislada, más la verificación del orquestador de la atomicidad y de la lectura del comprobante mediante hash lógico.
 
@@ -74,8 +74,8 @@ Reglas de seguridad financiera del PM:
 
 ## LIMITACIONES
 
-1. **Sin PDF.** Ver el punto 2 de LIMITACIONES: es la reserva que queda, junto con la selección de estudiante que corresponde a la Fase 9.
-2. **Sin PDF.** El PM y las fuentes piden comprobante en PDF, pero no hay librería instalada y `npm audit` no es ejecutable en este entorno (registro npm inalcanzable), de modo que la regla 13 del PM ("verifica las dependencias antes de utilizarlas") impedía añadirla sin poder auditarla. El comprobante se entrega como dato con identificador único, que es lo que el PM exige de forma no negociable.
+1. **PDF de una página y solo texto.** No es una suite de maquetación. Para maquetación compleja haría falta una dependencia auditable o una ratificación expresa del solicitante.
+2. **PDF sin librería de terceros.** El PM y las fuentes piden comprobante en PDF. No hay librería instalada y `npm audit` no es ejecutable en este entorno, de modo que la regla 13 del PM impedía añadir una dependencia sin poder auditarla. En lugar de instalar código no verificable, `backend/src/servicios/comprobante-pdf.ts` genera el PDF **sin ninguna dependencia**: no hay nada que auditar porque no se instala nada. Alcance declarado: una página de texto con las 14 fuentes estándar del PDF. No incrusta imágenes ni fuentes propias. Verificado estructuralmente (marca `%PDF-`, `xref`, `%%EOF`, objetos) y con los datos del comprobante dentro; la prueba confirma además que el escape de paréntesis y barras funciona, porque sin él el paréntesis de un nombre rompería el content stream.
 3. **Sin endpoint de "seleccionar estudiante":** es de interfaz y corresponde a la Fase 9.
 4. **La moneda del comprobante es nullable** y el año del correlativo depende de la zona horaria de sesión de PostgreSQL: ambos amarrados a DEC-05, sin decisión institucional.
 5. **Formato del correlativo `CMP-AAAA-NNNNNN` provisional:** DEC-10 sigue abierto.
@@ -89,4 +89,4 @@ Reglas de seguridad financiera del PM:
 
 ## ESTADO DE LA FASE
 
-**FASE 7.A COMPLETADA TÉCNICAMENTE A NIVEL LOCAL, CON RESERVAS.** Las diez funcionalidades del PM están implementadas salvo «seleccionar estudiante» (interfaz, Fase 9) y el comprobante en PDF (dependencia no auditable en este entorno). Las nueve pruebas obligatorias del PM pasan. Reserva principal: sin PDF.
+**FASE 7 COMPLETADA TÉCNICAMENTE A NIVEL LOCAL, CON RESERVAS.** Nueve de las diez funcionalidades del PM están implementadas y probadas; la restante, «seleccionar estudiante», es de interfaz y corresponde a la Fase 9 (el backend ya expone `GET /api/estudiantes` para seleccionar). Las nueve pruebas obligatorias del PM pasan. Reserva principal: el PDF es de una página y solo texto, generado sin dependencias porque no se podía auditar una.

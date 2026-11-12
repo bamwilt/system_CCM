@@ -235,10 +235,16 @@ Ejecutado el 2026-11-11 (lote `sgpm-fase7-cobro-v1`). Consume el motor de 6.B si
 
 ### Pruebas
 
-Las nueve pruebas obligatorias del PM están en `backend/tests/pagos-api.test.ts` (23 pruebas, todas en verde): doble clic, repetición de solicitudes, fallos de red con hash lógico, concurrencia con conexiones reales, pago parcial, pago completo, reversión, permisos e integridad de comprobantes. La regresión completa queda en **320 pruebas PASS / 0 FAIL / 0 SKIP en 16 archivos, exit 0**.
+Las nueve pruebas obligatorias del PM están en `backend/tests/pagos-api.test.ts` (23 pruebas, todas en verde): doble clic, repetición de solicitudes, fallos de red con hash lógico, concurrencia con conexiones reales, pago parcial, pago completo, reversión, permisos e integridad de comprobantes. La regresión completa queda en **324 pruebas PASS / 0 FAIL / 0 SKIP en 16 archivos, exit 0**.
 
 Tres versiones previas del arnés fallaron por defectos del arnés, no del producto: el `beforeEach` borraba `auth_login_limits`, cuyo lock de fila retiene el limitador en cada petición HTTP y bloqueaba el hook hasta su timeout; varias pruebas montaban su matrícula con un actor sin `matriculas:manage` o con CSRF inválido; y dos conteos filtraban por `observaciones`, campo que la fila inversa de la reversión no lleva. El `afterAll` añade una guardia que falla ruidoso si la suite deja concesiones `pagos:*` en la base compartida, para no envenenar otra suite en silencio.
 
+### Comprobante en PDF
+
+`backend/src/servicios/comprobante-pdf.ts` genera el PDF **sin ninguna dependencia**: la regla 13 del PM exige verificar lo que se instala y `npm audit` no es ejecutable en este entorno (registro npm inalcanzable), así que instalar `pdfkit` habría sido incorporar código de terceros sin poder verificarlo. No hay dependencia que auditar porque no se añade ninguna.
+
+Alcance declarado: una página de texto con las 14 fuentes estándar del PDF. Probado estructuralmente (`%PDF-`, `xref`, `%%EOF`, objetos) y con los datos del comprobante dentro; incluye una prueba de que el escape de paréntesis y barras funciona, porque sin él un nombre con paréntesis rompería el content stream.
+
 ### Reserva principal
 
-Sin PDF: no hay librería instalada y `npm audit` no es ejecutable en este entorno, de modo que la regla 13 del PM impedía añadir la dependencia sin poder auditarla. El comprobante se entrega como dato con identificador único. Queda además «seleccionar estudiante», que es de interfaz y corresponde a la Fase 9.
+PDF de una página y solo texto: no es una suite de maquetación. Queda también «seleccionar estudiante», que es de interfaz y corresponde a la Fase 9 (el backend ya expone `GET /api/estudiantes` para seleccionar).

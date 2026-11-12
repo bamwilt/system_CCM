@@ -22,6 +22,7 @@ import request from 'supertest';
 import { Pool, PoolClient, QueryResultRow } from 'pg';
 
 import { createTestPool, closeTestPool, getTestDatabaseUrl } from './auth/testDb';
+import { generarComprobantePdf, verificarEstructuraPdf } from '../src/servicios/comprobante-pdf.js';
 import { closePool } from '../src/config/database';
 import app from '../src/app';
 
@@ -1148,6 +1149,100 @@ describe('PM 9 integridad de comprobantes', () => {
     // Pero si lleva lo que un comprobante necesita.
     expect(comprobante.body.comprobante.numero_comprobante).toBeDefined();
     expect(comprobante.body.comprobante.monto_total).toBeDefined();
+  });
+});
+
+// ============================================================================
+// PM 9 (continuacion) — COMPROBANTE EN PDF
+// ============================================================================
+
+describe('comprobante en PDF', () => {
+  it('devuelve un PDF valido con el contenido del comprobante', async () => {
+    const { cookie, csrf } = await actor(GRANTS_ACTOR);
+    const { matriculaId, anio } = await crearMatriculaConCuotas(cookie, csrf, anioUnico(), 1);
+    const pago = await request(app)
+      .post('/api/pagos')
+      .set(hdrs(cookie, csrf))
+      .set('Content-Type', 'application/json')
+      .send({
+        matricula_id: matriculaId,
+        fecha_efectiva: `${anio}-02-11`,
+        medios: [{ tipo: 'EFECTIVO', monto: '1000.00' }],
+        observaciones: `${MARCA}-pdf1`,
+      });
+    expect(pago.status).toBe(201);
+    const numero = pago.body.comprobante.numero_comprobante as string;
+    expect(typeof numero).toBe('string');
+
+    const res = await request(app)
+      .get(`/api/pagos/${pago.body.pago.id}/comprobante.pdf`)
+      .set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('application/pdf');
+
+    const pdf = Buffer.from(res.body);
+    const estructura = verificarEstructuraPdf(pdf);
+    expect(estructura.valido, estructura.motivos.join('; ')).toBe(true);
+    const texto = pdf.toString('latin1');
+    // El comprobante lleva sus datos: sin esto el PDF podria estar vacio y "valido".
+    expect(texto).toContain(numero);
+    expect(texto).toContain('1000.00');
+    expect(texto).toContain('COMPROBANTE DE PAGO');
+  });
+
+  it('generar el PDF NO altera el saldo ni el comprobante: hash identico', async () => {
+    const { cookie, csrf } = await actor(GRANTS_ACTOR);
+    const { matriculaId, anio } = await crearMatriculaConCuotas(cookie, csrf, anioUnico(), 1);
+    const pago = await request(app)
+      .post('/api/pagos')
+      .set(hdrs(cookie, csrf))
+      .set('Content-Type', 'application/json')
+      .send({
+        matricula_id: matriculaId,
+        fecha_efectiva: `${anio}-02-11`,
+        medios: [{ tipo: 'EFECTIVO', monto: '1000.00' }],
+        observaciones: `${MARCA}-pdf2`,
+      });
+    expect(pago.status).toBe(201);
+
+    const antes = await hashFinanciero();
+    const a = await request(app).get(`/api/pagos/${pago.body.pago.id}/comprobante.pdf`).set('Cookie', cookie);
+    const b = await request(app).get(`/api/pagos/${pago.body.pago.id}/comprobante.pdf`).set('Cookie', cookie);
+    const despues = await hashFinanciero();
+
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    expect(a.body).toEqual(b.body);
+    expect(despues).toEqual(antes);
+  });
+
+  it('un pago inexistente devuelve 404, no un PDF vacio', async () => {
+    const { cookie } = await actor(GRANTS_ACTOR);
+    const res = await request(app).get('/api/pagos/999999999/comprobante.pdf').set('Cookie', cookie);
+    expect(res.status).toBe(404);
+  });
+
+  it('el generador escapa parentesis y barras: el PDF sigue siendo valido', async () => {
+    // Sin escape, un parentudio en el nombre romperia el content stream.
+    const pdf = generarComprobantePdf({
+      numero_comprobante: 'CMP-2026-000001',
+      fecha_emision: '2026-11-11 10:00:00',
+      estado: 'EMITIDO',
+      estudiante_nombre: 'Ana (Maria) \\ Perez',
+      grado_nombre: '5to (A)',
+      anio_lectivo: 2026,
+      monto_total: '1234.50',
+      moneda: 'NIO',
+      pago_fecha: '2026-03-05 14:30:00',
+      matricula_id: 1,
+      pago_id: 1,
+      usuario_id: 1,
+    });
+    const estructura = verificarEstructuraPdf(pdf);
+    expect(estructura.valido, estructura.motivos.join('; ')).toBe(true);
+    //aparece ESCAPADO: ese es precisamente el punto de la prueba. Si no se
+    // escapara, el parentesis romperia el content stream y el PDF no seria valido.
+    expect(pdf.toString('latin1')).toContain('Ana \\(Maria\\)');
   });
 });
 

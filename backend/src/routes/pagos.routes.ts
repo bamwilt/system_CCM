@@ -18,6 +18,7 @@ import {
 } from '../services/pagos.service';
 import { hashToken } from '../utils/authCrypto';
 import { redactError } from '../utils/redact';
+import { generarComprobantePdf } from '../servicios/comprobante-pdf';
 
 /**
  * ============================================================================
@@ -31,7 +32,8 @@ import { redactError } from '../utils/redact';
  *   POST /api/pagos                  pagos:manage + CSRF  registrar pago
  *   GET  /api/pagos                  pagos:read           buscar con filtros
  *   GET  /api/pagos/:id              pagos:read           detalle
- *   GET  /api/pagos/:id/comprobante  pagos:read           comprobante como DATO
+ *   GET  /api/pagos/:id/comprobante     pagos:read        comprobante como DATO
+ *   GET  /api/pagos/:id/comprobante.pdf   pagos:read        comprobante en PDF
  *   POST /api/pagos/:id/reversar     pagos:manage + CSRF  reversion compensatoria
  *
  * ESTRUCTURA TRANSACCIONAL DE `POST /api/pagos` (ver la cabecera de
@@ -298,6 +300,59 @@ router.get(
         return;
       }
       res.status(200).json({ comprobante });
+    } catch (error) {
+      next(toHttpError(error));
+    }
+  }
+);
+
+// GET /api/pagos/:id/comprobante.pdf — comprobante en PDF (solo lectura, generador propio)
+// Mismo contrato que la version JSON: exige pagos:read y NO escribe nada. El PDF
+// se genera en memoria a partir del comprobante almacenado (funcion pura, sin
+// base de datos), de modo que emitirlo no altera ningun saldo (lo exige el PM).
+router.get(
+  '/:id/comprobante.pdf',
+  requireAuth,
+  requirePermission(AUTH_PERMISSIONS.PAGOS_READ),
+  async (req: Request, res: Response, next: NextFunction) => {
+    const id = parsePositiveId(getParamString(req.params.id));
+    if (id === null) {
+      responderNoEncontrado(res);
+      return;
+    }
+    try {
+      const comprobante = await pagosService.obtenerComprobante(id);
+      if (!comprobante) {
+        responderNoEncontrado(res);
+        return;
+      }
+      // El PDF necesita que el comprobante este EMITIDO (tenga numero). La vista
+      // previa sin fila almacenada no tiene identificador que imprimir.
+      if (!comprobante.emitido || comprobante.numero_comprobante === null) {
+        responderNoEncontrado(res);
+        return;
+      }
+      const pdf = generarComprobantePdf({
+        numero_comprobante: comprobante.numero_comprobante,
+        fecha_emision: comprobante.fecha_emision ?? 'no registrada',
+        estado: comprobante.estado,
+        estudiante_nombre: comprobante.estudiante.nombre,
+        grado_nombre: comprobante.matricula.grado,
+        anio_lectivo: comprobante.matricula.anio_lectivo,
+        monto_total: comprobante.monto_total,
+        moneda: comprobante.moneda,
+        pago_fecha: comprobante.pago.fecha,
+        matricula_id: comprobante.matricula.id,
+        pago_id: comprobante.pago.id,
+        usuario_id: comprobante.usuario_id,
+      });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        `inline; filename="${comprobante.numero_comprobante}.pdf"`
+      );
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(200).send(pdf);
     } catch (error) {
       next(toHttpError(error));
     }
