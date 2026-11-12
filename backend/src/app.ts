@@ -11,6 +11,7 @@ import estudiantesRoutes from './routes/estudiantes.routes';
 import tutoresRoutes from './routes/tutores.routes';
 import matriculasRoutes from './routes/matriculas.routes';
 import pagosRoutes from './routes/pagos.routes';
+import reportesRoutes from './routes/reportes.routes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
 const app: Application = express();
@@ -44,6 +45,7 @@ app.use('/api/estudiantes', estudiantesRoutes);
 app.use('/api/tutores', tutoresRoutes);
 app.use('/api/matriculas', matriculasRoutes);
 app.use('/api/pagos', pagosRoutes);
+app.use('/api/reportes', reportesRoutes);
 
 // 404 handler
 app.use(notFoundHandler);
