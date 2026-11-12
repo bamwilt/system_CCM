@@ -9,7 +9,11 @@ import { Boton, Campo, Cargando, Mensaje } from '../components/Comunes';
  * carga, y el error se muestra junto al campo, no como un aviso generico.
  */
 export default function LoginPage() {
-  const { iniciarSesion, cargando, error, limpiarError } = useSesion();
+  const { iniciarSesion, error, limpiarError } = useSesion();
+  // Estado propio del envio: el `cargando` del proveedor cubre tambien la carga
+  // inicial de la sesion, y confundirlos haria que el boton mostrara
+  // "Procesando..." antes de que la persona pulse nada.
+  const [enviando, setEnviando] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -62,12 +66,16 @@ export default function LoginPage() {
           />
         </Campo>
 
-        <Boton tipo="primario" cargando={cargando} disabled={email === '' || password === ''}>
+        <Boton
+          tipo="primario"
+          cargando={enviando}
+          disabled={email === '' || password === '' || enviando}
+        >
           Ingresar
         </Boton>
       </form>
 
-      {cargando ? <Cargando texto="Verificando credenciales..." /> : null}
+      {enviando ? <Cargando texto="Verificando credenciales..." /> : null}
     </div>
   );
 }

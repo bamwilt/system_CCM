@@ -108,6 +108,26 @@ export async function iniciarSesion(
   };
 }
 
+/**
+ * Sesion activa: consulta `/auth/me`. Devuelve null si no hay sesion valida.
+ * Se usa al montar la aplicacion para que un refresco de pagina no pierda la
+ * sesion ni los permisos: la cookie de sesion sigue siendo valida.
+ */
+export async function obtenerSesionActiva(): Promise<SesionInfo | null> {
+  try {
+    const { data } = await api.get<SesionInfo & { csrfToken?: string }>('/auth/me');
+    setCsrfToken(data.csrfToken ?? null);
+    return {
+      userId: Number(data.userId ?? 0),
+      email: String(data.email ?? ''),
+      nombre: String(data.nombre ?? ''),
+      grants: Array.isArray(data.grants) ? (data.grants as string[]) : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function cerrarSesion(): Promise<void> {
   await api.post('/auth/logout', {}, { headers: mutationHeaders() });
   setCsrfToken(null);

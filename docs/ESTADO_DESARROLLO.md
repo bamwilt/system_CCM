@@ -235,7 +235,7 @@ Ejecutado el 2026-11-11 (lote `sgpm-fase7-cobro-v1`). Consume el motor de 6.B si
 
 ### Pruebas
 
-Las nueve pruebas obligatorias del PM están en `backend/tests/pagos-api.test.ts` (23 pruebas, todas en verde): doble clic, repetición de solicitudes, fallos de red con hash lógico, concurrencia con conexiones reales, pago parcial, pago completo, reversión, permisos e integridad de comprobantes. La regresión completa queda en **343 pruebas PASS / 0 FAIL / 0 SKIP en 17 archivos, exit 0** (backend) y **11 pruebas PASS en 1 archivo, exit 0** (frontend).
+Las nueve pruebas obligatorias del PM están en `backend/tests/pagos-api.test.ts` (23 pruebas, todas en verde): doble clic, repetición de solicitudes, fallos de red con hash lógico, concurrencia con conexiones reales, pago parcial, pago completo, reversión, permisos e integridad de comprobantes. La regresión completa queda en **343 pruebas PASS / 0 FAIL / 0 SKIP en 17 archivos, exit 0** (backend) y **19 pruebas PASS en 1 archivo, exit 0** (frontend).
 
 Tres versiones previas del arnés fallaron por defectos del arnés, no del producto: el `beforeEach` borraba `auth_login_limits`, cuyo lock de fila retiene el limitador en cada petición HTTP y bloqueaba el hook hasta su timeout; varias pruebas montaban su matrícula con un actor sin `matriculas:manage` o con CSRF inválido; y dos conteos filtraban por `observaciones`, campo que la fila inversa de la reversión no lleva. El `afterAll` añade una guardia que falla ruidoso si la suite deja concesiones `pagos:*` en la base compartida, para no envenenar otra suite en silencio.
 
@@ -279,4 +279,6 @@ Los diez elementos de diseño general que pide el PM están implementados: naveg
 
 **Sin dependencias nuevas:** React, React DOM, React Router y Axias ya estaban; no se instalo nada porque `npm audit` no es ejecutable en este entorno y la regla 13 del PM exige poder verificar lo que se instala. Por la misma razon las pruebas usan `fireEvent` en lugar de `@testing-library/user-event`.
 
-**Reservas:** sin hoja de estilos definitiva, sin alta/edicion de matricula desde la interfaz, sin pantalla de tutores y sin persistencia de sesion tras recarga (un refresco vuelve al inicio de sesion).
+**Completado:** la sesion sobrevive a la recarga (`/auth/me` devuelve los permisos efectivos y el CSRF), hay pantalla de tutores, alta de matricula con plan de pago (el numero de cuotas lo decide la cantidad de fechas cargadas, sin valor por defecto) y hoja de estilos con foco visible y `prefers-reduced-motion`.
+
+**Reservas:** diseño visual sin validar con personal administrativo y sin pantalla de edicion de matricula. Los catalogos del formulario se cargan solo si existen endpoints; si no, la persona introduce los identificadores a mano.

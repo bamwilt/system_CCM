@@ -1,47 +1,455 @@
+/*
+ * ============================================================================
+ * HOJA DE ESTILOS DEL SGPM (FASE 9)
+ * ============================================================================
+ *
+ * Objetivo del PM: claridad, consistencia, legibilidad y accesibilidad. Se usan
+ * variables CSS para que el sistema visual sea coherente y modificable en un
+ * solo sitio.
+ *
+ * Regla del PM: "No utilizar animaciones innecesarias que retrasen el registro
+ * de pagos". Solo hay una animacion: el indicador de carga, que es informativa
+ * y no bloquea la interaccion.
+ */
+
+:root {
+  --color-fondo: #f6f7f9;
+  --color-superficie: #ffffff;
+  --color-borde: #d7dbe0;
+  --color-texto: #1c2530;
+  --color-texto-suave: #5b6675;
+  --color-primario: #1f5fa8;
+  --color-primario-hover: #1a4d8a;
+  --color-peligro: #b3261e;
+  --color-exito: #1e6b3a;
+  --color-info: #1f5fa8;
+  --radio: 6px;
+  --sombra: 0 1px 3px rgb(0 0 0 / 12%);
+  --fuente: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
 * {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
 }
 
 body {
-  font-family: system-ui, -apple-system, sans-serif;
-  line-height: 1.6;
-  color: #333;
+  margin: 0;
+  font-family: var(--fuente);
+  color: var(--color-texto);
+  background: var(--color-fondo);
+  line-height: 1.5;
 }
+
+/* ---------------------------------------------------------------------------
+ * ESTRUCTURA
+ * ------------------------------------------------------------------------ */
 
 .layout {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 1rem;
+  min-height: 100vh;
 }
 
-header {
+.layout__salto {
+  position: absolute;
+  left: -9999px;
+}
+
+.layout__salto:focus {
+  left: 0;
+  top: 0;
+  z-index: 10;
+  padding: 8px;
+  background: var(--color-primario);
+  color: #fff;
+}
+
+.layout header {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
   align-items: center;
-  padding: 1rem 0;
-  border-bottom: 1px solid #eee;
-  margin-bottom: 1rem;
+  gap: 16px;
+  padding: 12px 24px;
+  background: var(--color-superficie);
+  border-bottom: 1px solid var(--color-borde);
 }
 
-nav {
+.layout header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.layout nav {
   display: flex;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
-nav a {
+.layout nav a {
+  color: var(--color-primario);
   text-decoration: none;
-  color: #0066cc;
+  padding: 4px 8px;
+  border-radius: var(--radio);
 }
 
-main {
-  padding: 1rem 0;
+.layout nav a:hover {
+  background: var(--color-fondo);
+  text-decoration: underline;
 }
 
-pre {
-  background: #f5f5f5;
-  padding: 1rem;
-  border-radius: 4px;
-  overflow: auto;
+.layout nav a:focus-visible {
+  outline: 2px solid var(--color-primario);
+  outline-offset: 2px;
+}
+
+.layout__sesion {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.875rem;
+  color: var(--color-texto-suave);
+}
+
+.layout main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+/* ---------------------------------------------------------------------------
+ * FORMULARIOS
+ * ------------------------------------------------------------------------ */
+
+.campo {
+  margin-bottom: 16px;
+}
+
+.campo label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.campo__ayuda {
+  margin: 0 0 4px;
+  font-size: 0.8125rem;
+  color: var(--color-texto-suave);
+}
+
+.campo__error {
+  margin: 4px 0 0;
+  font-size: 0.8125rem;
+  color: var(--color-peligro);
+}
+
+input,
+select {
+  width: 100%;
+  max-width: 420px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-borde);
+  border-radius: var(--radio);
+  font: inherit;
+  color: inherit;
+  background: var(--color-superficie);
+}
+
+input:focus-visible,
+select:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--color-primario);
+  outline-offset: 1px;
+}
+
+/* ---------------------------------------------------------------------------
+ * BOTONES
+ * ------------------------------------------------------------------------ */
+
+.boton {
+  padding: 8px 16px;
+  border: 1px solid transparent;
+  border-radius: var(--radio);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--color-primario);
+  color: #fff;
+}
+
+.boton:hover:not(:disabled) {
+  background: var(--color-primario-hover);
+}
+
+.boton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.boton--secundario {
+  background: var(--color-superficie);
+  color: var(--color-primario);
+  border-color: var(--color-borde);
+}
+
+.boton--secundario:hover:not(:disabled) {
+  background: var(--color-fondo);
+}
+
+.boton--peligro {
+  background: var(--color-peligro);
+}
+
+/* ---------------------------------------------------------------------------
+ * TABLAS
+ * ------------------------------------------------------------------------ */
+
+.tabla {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--color-superficie);
+  border: 1px solid var(--color-borde);
+  border-radius: var(--radio);
+  overflow: hidden;
+}
+
+.tabla th,
+.tabla td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-borde);
+}
+
+.tabla th {
+  background: var(--color-fondo);
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.tabla tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.tabla__vacio {
+  padding: 16px;
+  background: var(--color-superficie);
+  border: 1px dashed var(--color-borde);
+  border-radius: var(--radio);
+  color: var(--color-texto-suave);
+}
+
+/* Los importes se alinean a la derecha para comparar cifras de un vistazo. */
+.importe {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.importe__moneda {
+  color: var(--color-texto-suave);
+  font-size: 0.875rem;
+}
+
+/* ---------------------------------------------------------------------------
+ * MENSAJES Y NOTIFICACIONES
+ * ------------------------------------------------------------------------ */
+
+.mensaje {
+  padding: 12px 16px;
+  border-radius: var(--radio);
+  margin-bottom: 16px;
+  border: 1px solid var(--color-borde);
+  background: var(--color-superficie);
+}
+
+.mensaje--error {
+  border-color: var(--color-peligro);
+  color: var(--color-peligro);
+}
+
+.mensaje--exito {
+  border-color: var(--color-exito);
+  color: var(--color-exito);
+}
+
+.mensaje--info {
+  border-color: var(--color-info);
+  color: var(--color-info);
+}
+
+.notificacion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  border-radius: var(--radio);
+  background: var(--color-exito);
+  color: #fff;
+}
+
+.notificacion--error {
+  background: var(--color-peligro);
+}
+
+.notificacion button {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.25rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+/* ---------------------------------------------------------------------------
+ * INDICADOR DE CARGA (la unica animacion: informativa, no bloquea)
+ * ------------------------------------------------------------------------ */
+
+.cargando {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  color: var(--color-texto-suave);
+}
+
+.cargando__spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-borde);
+  border-top-color: var(--color-primario);
+  border-radius: 50%;
+  animation: girar 0.8s linear infinite;
+}
+
+@keyframes girar {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/*
+ * Se respeta quien prefiera menos movimiento: el spinner se detiene y se deja
+ * solo el texto, que sigue informando el estado.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .cargando__spinner {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * CONFIRMACION
+ * ------------------------------------------------------------------------ */
+
+.confirmacion {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 40%);
+  padding: 16px;
+}
+
+.confirmacion__caja {
+  background: var(--color-superficie);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+  padding: 24px;
+  max-width: 480px;
+  width: 100%;
+}
+
+.confirmacion__caja h2 {
+  margin-top: 0;
+}
+
+.confirmacion__acciones {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+/* ---------------------------------------------------------------------------
+ * FILTROS Y LISTADOS
+ * ------------------------------------------------------------------------ */
+
+.filtros {
+  padding: 16px;
+  background: var(--color-superficie);
+  border: 1px solid var(--color-borde);
+  border-radius: var(--radio);
+  margin-bottom: 20px;
+}
+
+.filtros fieldset {
+  border: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.filtros legend {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.listado__total {
+  color: var(--color-texto-suave);
+  font-size: 0.875rem;
+}
+
+.listado__paginacion {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.panel__usuario {
+  color: var(--color-texto-suave);
+}
+
+.panel__accesos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.panel__accesos a {
+  padding: 10px 16px;
+  background: var(--color-superficie);
+  border: 1px solid var(--color-borde);
+  border-radius: var(--radio);
+  color: var(--color-primario);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.panel__seccion {
+  margin-top: 24px;
+}
+
+/* ---------------------------------------------------------------------------
+ * LOGIN
+ * ------------------------------------------------------------------------ */
+
+.login {
+  max-width: 420px;
+  margin: 64px auto;
+  padding: 32px;
+  background: var(--color-superficie);
+  border: 1px solid var(--color-borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+}
+
+.login h1 {
+  margin-top: 0;
+  font-size: 1.5rem;
+}
+
+.login__intro {
+  color: var(--color-texto-suave);
+  margin-top: 0;
 }

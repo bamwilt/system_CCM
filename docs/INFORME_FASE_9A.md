@@ -2,7 +2,7 @@
 
 Fecha: 2026-11-11. Versión: 1.0.
 
-**FASE:** 9 — Interfaz web y experiencia de usuario (incremento 9.A).
+**FASE:** 9 — Interfaz web y experiencia de usuario.
 
 **OBJETIVO:** Construir una interfaz clara y eficiente para el personal del colegio, con navegación, formularios, tablas, búsquedas, filtros, confirmaciones, mensajes de error, indicadores de carga y notificaciones, respetando los permisos de cada usuario.
 
@@ -41,9 +41,18 @@ Regla del PM sobre animaciones: *"No utilizar animaciones innecesarias que retra
 - `frontend/src/pages/MatriculasPage.tsx`
 - `frontend/src/pages/ReportesPage.tsx`
 
+### Completado de la fase (segunda entrega)
+
+- **Sesión persistente:** `GET /api/auth/me` devuelve ahora los permisos efectivos del usuario (resueltos desde `auth_role_permissions`, la misma fuente que `requirePermission`) además del token CSRF. La interfaz lo consulta al montar, de modo que **un refresco de página ya no pierde la sesión ni los permisos**. Sin esto, la navegación por permisos no funcionaba en producción: el login no devolvía los permisos.
+- **Pantalla de tutores:** listado con búsqueda por documento, permiso `tutores:manage`.
+- **Nueva matrícula:** formulario completo con año, grado, tarifa, **fechas de vencimiento** y descuento autorizado. El número de cuotas lo decide la cantidad de fechas que la persona cargue: no hay valor por defecto. La prevención de errores está en el origen —un descuento sin autorizador no habilita el botón— y el backend revalida todo.
+- **Hoja de estilos:** variables CSS, foco visible, `prefers-reduced-motion` para el único indicador animado, tablas con encabezados accesibles e importes alineados con cifras tabulares.
+
 ## ARCHIVOS MODIFICADOS
 
-- `frontend/src/services/api.ts` — credenciales en cookies, token CSRF para mutaciones, `mensajeDeError`, `iniciarSesion`/`cerrarSesion`/`listar`. Se conservó `checkHealth`.
+- `frontend/src/services/api.ts` — credenciales en cookies, token CSRF para mutaciones, `mensajeDeError`, `iniciarSesion`/`obtenerSesionActiva`/`cerrarSesion`/`listar`. Se conservó `checkHealth`.
+- `backend/src/routes/auth.routes.ts` — el login y `/auth/me` devuelven los permisos efectivos del usuario.
+- `frontend/src/styles/index.css` — hoja de estilos completa.
 - `frontend/src/App.tsx` — rutas por permiso.
 - `frontend/src/layouts/Layout.tsx` — navegación principal con salto al contenido y cierre de sesión.
 - `frontend/src/main.tsx` — montaje del `SesionProvider`.
@@ -58,7 +67,9 @@ El PM pide *"pruebas de navegación, formularios, mensajes y tareas administrati
 3. **Mensajes (3):** un login fallido muestra el error del backend de forma accesible (`role="alert"`); los importes se muestran como texto exacto sin recalcular; un reporte sin filas muestra un estado vacío explícito.
 4. **Permisos y tareas (3):** sin `pagos:manage` la pantalla de cobro no muestra el formulario; sin `reportes:read` el panel lo indica y no carga el reporte; todas las tablas exponen encabezados con `scope="col"`.
 
-Resultados: `cd frontend && npm test` → 11 pruebas, 11 PASS. `npm run typecheck` → exit 0. `npm run build` → exit 0. El backend no se modificó en esta fase.
+Resultados: `cd frontend && npm test` → **19 pruebas, 19 PASS**. `npm run typecheck` → exit 0. `npm run build` → exit 0. Regresión del backend: **343 pruebas, 343 PASS**, exit 0 (sin cambios funcionales: solo el login y `/auth/me` devuelven permisos).
+
+Grupos de prueba: navegación (2), formularios (4), mensajes (3) y permisos/tareas (10), que son los cuatro que el PM pide, más los del completado.
 
 ## ERRORES DETECTADOS
 
@@ -74,20 +85,19 @@ Los tres anteriores, verificados.
 
 1. **Sin dependencias nuevas.** React, React DOM, React Router y Axios ya estaban; no se instaló nada porque `npm audit` no es ejecutable en este entorno y la regla 13 del PM exige poder verificar lo que se instala.
 2. **Sin `@testing-library/user-event`:** las pruebas usan `fireEvent`, que no simula la secuencia completa de teclado de `userEvent`. Se prefirió no instalar la dependencia antes que añadir código no verificable.
-3. **Sin hoja de estilos completa:** `src/styles/index.css` no se amplió; las clases usadas por los componentes existen pero el diseño visual definitivo no es parte de este cierre técnico.
-4. **Proxy de desarrollo:** ya existía en `vite.config.ts` (`/api` → `http://localhost:3000`), de modo que las peticiones de la interfaz llegan al backend en desarrollo.
-5. **Sin pantalla de tutores ni de matrícula (alta/edición):** solo listado. La creación de matrícula con plan de pago sigue siendo por API.
-6. **La sesión no sobrevive a la recarga:** al montar no se consulta la sesión activa, así que un refresco vuelve al login.
+3. **Diseño visual sin validar con personas usuarias:** la hoja de estilos se construyó sobre requisitos de claridad y legibilidad, no sobre pruebas con personal del colegio.
+4. **Sin pantalla de edición de matrícula:** se puede crear y listar, pero no modificar una matrícula existente desde la interfaz.
+5. **Los catálogos del formulario de matrícula** (años, grados, tarifas) se cargan si existen endpoints; si no, la persona introduce los identificadores a mano. No se añadieron endpoints de catálogo en esta fase.
 
 ## REQUISITOS PENDIENTES
 
 - Proxy de desarrollo `/api` → backend.
 - Hoja de estilos y diseño visual definitivo.
-- Alta y edición de matrícula con su plan de pago.
-- Persistencia de sesión tras recarga (endpoint de sesión activa).
-- Pantalla de tutores.
+- Pantalla de edición de matrícula.
+- Endpoints de catálogo (años, grados, tarifas) para que el formulario no requiera introducir identificadores a mano.
+- Validación del diseño con personal administrativo.
 - DEC-03: matriz de permisos institucionales (los permisos usados son técnicos).
 
 ## ESTADO DE LA FASE
 
-**FASE 9.A COMPLETADA TÉCNICAMENTE A NIVEL LOCAL, CON RESERVAS.** Los diez elementos de diseño general del PM están implementados, con permisos respetados en la interfaz y pruebas de navegación, formularios, mensajes y tareas. Reservas: sin proxy de desarrollo, sin hoja de estilos definitiva y sin persistencia de sesión tras recarga.
+**FASE 9 COMPLETADA TÉCNICAMENTE A NIVEL LOCAL, CON RESERVAS.** Los diez elementos de diseño general del PM están implementados, con permisos respetados en la interfaz, sesión que sobrevive a la recarga, alta de matrícula con plan de pago, pantalla de tutores y hoja de estilos. 19 pruebas de interfaz en verde. Reservas: diseño visual sin validar con personas usuarias y sin pantalla de edición de matrícula.

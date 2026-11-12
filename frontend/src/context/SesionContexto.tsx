@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import {
   SesionInfo,
   cerrarSesion as apiCerrarSesion,
+  obtenerSesionActiva,
   iniciarSesion as apiIniciarSesion,
   mensajeDeError,
   setCsrfToken,
@@ -40,11 +41,30 @@ export function SesionProvider({ children }: { children: ReactNode }) {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Al montar no hay forma segura de recuperar la sesion sin una consulta al
-  // backend: se marca como "sin sesion" y la ruta de inicio de sesion la recupera. Nunca se
-  // asume permisos desde el almacenamiento local.
+  // Al montar se consulta la sesion activa al backend. Asi un refresco de pagina
+  // NO pierde la sesion ni los permisos: la cookie de sesion sigue siendo valida.
+  // Nunca se asumen permisos desde el almacenamiento local.
   useEffect(() => {
-    setCargando(false);
+    let vigente = true;
+    obtenerSesionActiva()
+      .then((info) => {
+        if (vigente) {
+          setSesion(info);
+        }
+      })
+      .catch(() => {
+        if (vigente) {
+          setSesion(null);
+        }
+      })
+      .finally(() => {
+        if (vigente) {
+          setCargando(false);
+        }
+      });
+    return () => {
+      vigente = false;
+    };
   }, []);
 
   const iniciarSesion = useCallback(

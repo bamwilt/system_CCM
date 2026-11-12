@@ -24,6 +24,7 @@ export default function Layout() {
           {puede('estudiantes:read') ? <Link to="/estudiantes">Estudiantes</Link> : null}
           {puede('tutores:manage') ? <Link to="/tutores">Tutores</Link> : null}
           {puede('matriculas:read') ? <Link to="/matriculas">Matriculas</Link> : null}
+          {puede('matriculas:manage') ? <Link to="/matriculas/nueva">Nueva matricula</Link> : null}
           {puede('pagos:manage') ? <Link to="/cobro">Registrar cobro</Link> : null}
           {puede('reportes:read') ? <Link to="/reportes">Reportes</Link> : null}
           <Link to="/health">Estado</Link>

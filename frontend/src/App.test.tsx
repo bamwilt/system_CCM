@@ -48,10 +48,28 @@ function renderConRutas(rutaInicial: string, ui: ReactElement) {
   );
 }
 
-beforeEach(() => {
+/**
+ * Mock por URL. Al montar, la aplicacion consulta `/auth/me` para restaurar la
+ * sesion: este helper responde 401 por defecto a esa ruta (no hay sesion) y
+ * delega el resto en `respuestaReporte`. Sin el, el efecto de restauracion
+ * consumiria el primer mock pensado para los reportes.
+ */
+// OJO: no resetea `post`. Las pruebas fijan su mock de login ANTES de llamar
+// esta funcion, y un reset aqui lo borraria. `beforeEach` ya limpia `post`.
+function mockearHttp(respuestaReporte: unknown) {
   http.get.mockReset();
-  http.post.mockReset();
+  http.get.mockImplementation((url: unknown) => {
+    const ruta = String(url);
+    if (ruta.includes('/auth/me')) {
+      return Promise.reject({ response: { status: 401, data: {} } });
+    }
+    return Promise.resolve({ data: respuestaReporte });
+  });
   window.sessionStorage.clear();
+}
+
+beforeEach(() => {
+  mockearHttp({});
 });
 
 // ---------------------------------------------------------------------------
@@ -172,8 +190,9 @@ describe('mensajes', () => {
     http.post.mockResolvedValueOnce({
       data: { csrfToken: 'csrf-4', userId: 1, email: 'dir@x.com', nombre: 'Dir', grants: ['reportes:read'] },
     });
-    http.get.mockResolvedValueOnce({
-      data: { filas: [{ dia: '2026-03-05', operaciones: 2, total: '1234.50', anuladas: 1, total_anulado: '100.00' }], total: 1 },
+    mockearHttp({
+      filas: [{ dia: '2026-03-05', operaciones: 2, total: '1234.50', anuladas: 1, total_anulado: '100.00' }],
+      total: 1,
     });
     renderConRutas('/', <App />);
 
@@ -190,7 +209,7 @@ describe('mensajes', () => {
     http.post.mockResolvedValueOnce({
       data: { csrfToken: 'csrf-5', userId: 1, email: 'dir@x.com', nombre: 'Dir', grants: ['reportes:read'] },
     });
-    http.get.mockResolvedValue({ data: { filas: [], total: 0 } });
+    mockearHttp({ filas: [], total: 0 });
     renderConRutas('/reportes', <App />);
 
     fireEvent.change(screen.getByLabelText(/correo/i), { target: { value: 'dir@x.com' } });
@@ -231,15 +250,18 @@ describe('permisos', () => {
     fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
 
     expect(await screen.findByText(/no tiene permiso para ver reportes/i)).toBeTruthy();
-    expect(http.get).not.toHaveBeenCalled();
+    // La unica consulta es la de restauracion de sesion; ningun reporte.
+    const rutas = http.get.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(rutas.every((r: string) => r.includes("/auth/me"))).toBe(true);
   });
 
   it('todas las tablas exponen encabezados con scope="col"', async () => {
     http.post.mockResolvedValueOnce({
       data: { csrfToken: 'csrf-8', userId: 1, email: 'dir@x.com', nombre: 'Dir', grants: ['reportes:read'] },
     });
-    http.get.mockResolvedValueOnce({
-      data: { filas: [{ dia: '2026-03-05', operaciones: 1, total: '10.00', anuladas: 0, total_anulado: '0.00' }], total: 1 },
+    mockearHttp({
+      filas: [{ dia: '2026-03-05', operaciones: 1, total: '10.00', anuladas: 0, total_anulado: '0.00' }],
+      total: 1,
     });
     renderConRutas('/', <App />);
 
@@ -251,6 +273,181 @@ describe('permisos', () => {
     expect(encabezados.length).toBeGreaterThan(0);
     for (const encabezado of encabezados) {
       expect(encabezado.getAttribute('scope')).toBe('col');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// COMPLETADO DE FASE 9: sesion persistente, tutores y nueva matricula
+// ---------------------------------------------------------------------------
+
+describe('sesion persistente tras recarga', () => {
+  it('restaura la sesion y los permisos consultando /auth/me al montar', async () => {
+    http.get.mockImplementation((url: unknown) => {
+      if (String(url).includes('/auth/me')) {
+        return Promise.resolve({
+          data: {
+            userId: 7,
+            email: 'dir@x.com',
+            nombre: 'Dir',
+            grants: ['matriculas:manage', 'matriculas:read', 'estudiantes:read'],
+            csrfToken: 'csrf-restaurada',
+          },
+        });
+      }
+      return Promise.resolve({ data: { filas: [], total: 0 } });
+    });
+
+    renderConRutas('/', <App />);
+
+    // Con sesion restaurada NO se muestra el login: se va directo al panel.
+    const nav = await screen.findByRole('navigation', { name: /navegacion principal/i });
+    expect(nav.querySelector('a[href="/matriculas/nueva"]')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: /inicio de sesion/i })).toBeNull();
+  });
+
+  it('si /auth/me responde 401, se muestra el inicio de sesion', async () => {
+    mockearHttp({});
+    renderConRutas('/', <App />);
+    expect(await screen.findByRole('heading', { name: /inicio de sesion/i })).toBeTruthy();
+  });
+
+  it('el token CSRF devuelto por /auth/me queda disponible para mutaciones', async () => {
+    http.get.mockImplementation((url: unknown) => {
+      if (String(url).includes('/auth/me')) {
+        return Promise.resolve({
+          data: { userId: 1, email: 'a@x.com', nombre: 'A', grants: [], csrfToken: 'csrf-restaurada' },
+        });
+      }
+      return Promise.resolve({ data: { filas: [], total: 0 } });
+    });
+    renderConRutas('/', <App />);
+    await screen.findByRole('navigation', { name: /navegacion principal/i });
+    expect(window.sessionStorage.getItem('sgpm.csrfToken')).toBe('csrf-restaurada');
+  });
+});
+
+describe('nueva matricula', () => {
+  it('el numero de cuotas lo decide la cantidad de fechas: no hay valor por defecto', async () => {
+    http.post.mockResolvedValueOnce({
+      data: { csrfToken: 'c', userId: 1, email: 'a@x.com', nombre: 'A', grants: ['matriculas:manage'] },
+    });
+    mockearHttp({ anios: [], grados: [], tarifas: [] });
+    renderConRutas('/matriculas/nueva', <App />);
+
+    fireEvent.change(await screen.findByLabelText(/correo/i), { target: { value: 'a@x.com' } });
+    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
+    fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
+
+    const crear = await screen.findByRole('button', { name: /crear matricula/i });
+    // Sin fechas no se puede crear.
+    expect((crear as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText(/estudiante/i), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText(/anio lectivo/i), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText(/^grado$/i), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText(/tarifa/i), { target: { value: '1' } });
+    expect((crear as HTMLButtonElement).disabled).toBe(true);
+
+    // Dos fechas = dos cuotas. El boton se habilita.
+    fireEvent.change(screen.getByLabelText(/fechas de vencimiento/i), {
+      target: { value: '2026-03-10, 2026-04-10' },
+    });
+    expect((crear as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('rechaza fechas irreales, desordenadas o repetidas en el navegador', async () => {
+    http.post.mockResolvedValueOnce({
+      data: { csrfToken: 'c', userId: 1, email: 'a@x.com', nombre: 'A', grants: ['matriculas:manage'] },
+    });
+    mockearHttp({ anios: [], grados: [], tarifas: [] });
+    renderConRutas('/matriculas/nueva', <App />);
+
+    fireEvent.change(await screen.findByLabelText(/correo/i), { target: { value: 'a@x.com' } });
+    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
+    fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
+
+    fireEvent.change(await screen.findByLabelText(/estudiante/i), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText(/anio lectivo/i), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText(/^grado$/i), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText(/tarifa/i), { target: { value: '1' } });
+    const crear = screen.getByRole('button', { name: /crear matricula/i });
+
+    for (const valor of ['2026-02-31', '2026-04-10, 2026-03-10', '2026-03-10, 2026-03-10', 'no-es-fecha']) {
+      fireEvent.change(screen.getByLabelText(/fechas de vencimiento/i), { target: { value: valor } });
+      expect((crear as HTMLButtonElement).disabled, `debia rechazar ${valor}`).toBe(true);
+    }
+  });
+
+  it('un descuento sin autorizador impide crear la matricula', async () => {
+    http.post.mockResolvedValueOnce({
+      data: { csrfToken: 'c', userId: 1, email: 'a@x.com', nombre: 'A', grants: ['matriculas:manage'] },
+    });
+    mockearHttp({ anios: [], grados: [], tarifas: [] });
+    renderConRutas('/matriculas/nueva', <App />);
+
+    fireEvent.change(await screen.findByLabelText(/correo/i), { target: { value: 'a@x.com' } });
+    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
+    fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
+
+    fireEvent.change(await screen.findByLabelText(/estudiante/i), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText(/anio lectivo/i), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText(/^grado$/i), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText(/tarifa/i), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText(/fechas de vencimiento/i), {
+      target: { value: '2026-03-10' },
+    });
+    fireEvent.change(screen.getByLabelText(/descuento autorizado/i), { target: { value: '10' } });
+
+    // Con descuento y sin autorizador el boton NO se habilita: se previene el
+    // error en el origen en lugar de fallar despues de confirmar.
+    const crear = screen.getByRole('button', { name: /crear matricula/i });
+    expect((crear as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('alert').textContent).toContain('autoriza');
+
+    // Al indicar el autorizador se habilita.
+    fireEvent.change(screen.getByLabelText(/autorizado por/i), { target: { value: 'Direccion' } });
+    expect((crear as HTMLButtonElement).disabled).toBe(false);
+    expect(http.post).not.toHaveBeenCalledWith('/matriculas', expect.anything(), expect.anything());
+  });
+});
+
+describe('tutores', () => {
+  it('sin tutores:manage la pantalla lo indica y no muestra la tabla', async () => {
+    http.post.mockResolvedValueOnce({
+      data: { csrfToken: 'c', userId: 1, email: 'l@x.com', nombre: 'L', grants: ['estudiantes:read'] },
+    });
+    mockearHttp({ tutores: [] });
+    renderConRutas('/tutores', <App />);
+
+    fireEvent.change(await screen.findByLabelText(/correo/i), { target: { value: 'l@x.com' } });
+    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
+    fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
+
+    expect(await screen.findByText(/no tiene permiso para consultar tutores/i)).toBeTruthy();
+  });
+
+  it('con tutores:manage lista los tutores con encabezados accesibles', async () => {
+    http.post.mockResolvedValueOnce({
+      data: { csrfToken: 'c', userId: 1, email: 't@x.com', nombre: 'T', grants: ['tutores:manage'] },
+    });
+    mockearHttp({
+      tutores: [
+        { id: 1, nombres: 'Maria', apellidos: 'Perez', documento_identidad: '001', telefono: '8888', email: null, parentesco: 'Madre', activo: true },
+      ],
+      total: 1,
+    });
+    renderConRutas('/tutores', <App />);
+
+    fireEvent.change(await screen.findByLabelText(/correo/i), { target: { value: 't@x.com' } });
+    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
+    fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
+
+    expect(await screen.findByText('001')).toBeTruthy();
+    const encabezados = screen.getAllByRole('columnheader');
+    expect(encabezados.length).toBeGreaterThan(0);
+    for (const h of encabezados) {
+      expect(h.getAttribute('scope')).toBe('col');
     }
   });
 });
