@@ -11,6 +11,7 @@ import TutoresPage from './pages/TutoresPage';
 import NuevaMatriculaPage from './pages/NuevaMatriculaPage';
 import MatriculasPage from './pages/MatriculasPage';
 import ReportesPage from './pages/ReportesPage';
+import ResumenPage from './pages/ResumenPage';
 
 /**
  * RUTAS (FASE 9)
@@ -36,7 +37,7 @@ function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route path="/" element={<PanelPage />} />
+        <Route path="/" element={<ResumenPage />} />
         <Route path="/health" element={<HealthPage />} />
         <Route path="/cobro" element={<CobroPage />} />
         <Route path="/estudiantes" element={<EstudiantesPage />} />
@@ -44,6 +45,7 @@ function App() {
         <Route path="/matriculas/nueva" element={<NuevaMatriculaPage />} />
         <Route path="/tutores" element={<TutoresPage />} />
         <Route path="/reportes" element={<ReportesPage />} />
+        <Route path="/resumen" element={<ResumenPage />} />
         <Route path="/login" element={<PanelPage />} />
         <Route path="*" element={<HomePage />} />
       </Route>

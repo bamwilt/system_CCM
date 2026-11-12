@@ -41,6 +41,22 @@ Regla del PM sobre animaciones: *"No utilizar animaciones innecesarias que retra
 - `frontend/src/pages/MatriculasPage.tsx`
 - `frontend/src/pages/ReportesPage.tsx`
 
+### Pulido visual (tercera entrega)
+
+**Fuentes e iconos autohospedados.** Inter (tipografía de interfaz) en pesos 400/500/600/700 y un subconjunto de Google Symbols (Material Symbols) con solo los glifos que usa la interfaz: 12 KB frente a varios MB de la fuente completa. Nada se carga desde un CDN en tiempo de ejecución.
+
+**Sistema de diseño completo.** Escala tipográfica de 7 pasos, paleta con tokens semánticos, escala de espaciado base 4, radios, tres niveles de sombra y una curva de transición. La interfaz solo consume tokens, no valores crudos.
+
+**Estructura.** Barra lateral oscura con agrupación por operación/consulta (la acción frecuente primero) y área de contenido. Pantalla de inicio: resumen del día con cuatro indicadores, no un texto fijo.
+
+**Calidad de vida incorporada.** Esqueletos de carga para que el layout no salte; estados vacíos que explican por qué no hay datos; paginación como componente; etiquetas de estado con icono; panel lateral en el cobro con el resumen de la operación y las cuotas pendientes antes de confirmar; filtros con icono.
+
+**Referencias.** Paneles administrativos de plataformas educativas y aplicaciones de escritorio macOS: barra lateral persistente, contenido claro, densidad media, foco visible en todo elemento interactivo.
+
+**Accesibilidad.** Contraste suficiente, foco visible, prefers-reduced-motion anula todas las animaciones y transiciones, barra lateral que se convierte en navegación horizontal en pantallas chicas.
+
+**Datos de demostración en la base de desarrollo:** 8 estudiantes, 7 matrículas, 21 cuotas y 1 tutor, para poder recorrer la interfaz sin crear datos a mano.
+
 ### Completado de la fase (segunda entrega)
 
 - **Sesión persistente:** `GET /api/auth/me` devuelve ahora los permisos efectivos del usuario (resueltos desde `auth_role_permissions`, la misma fuente que `requirePermission`) además del token CSRF. La interfaz lo consulta al montar, de modo que **un refresco de página ya no pierde la sesión ni los permisos**. Sin esto, la navegación por permisos no funcionaba en producción: el login no devolvía los permisos.

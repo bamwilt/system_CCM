@@ -56,6 +56,15 @@ function renderConRutas(rutaInicial: string, ui: ReactElement) {
  */
 // OJO: no resetea `post`. Las pruebas fijan su mock de login ANTES de llamar
 // esta funcion, y un reset aqui lo borraria. `beforeEach` ya limpia `post`.
+
+/** Compara texto ignorando acentos: los matchers no deben depender de la tilde. */
+function sinAcentos(texto: string): string {
+  return texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+function coincide(texto: string, patron: RegExp): boolean {
+  return patron.test(sinAcentos(texto));
+}
+
 function mockearHttp(respuestaReporte: unknown) {
   http.get.mockReset();
   http.get.mockImplementation((url: unknown) => {
@@ -79,7 +88,7 @@ beforeEach(() => {
 describe('navegacion', () => {
   it('sin sesion redirige a /login', async () => {
     renderConRutas('/', <App />);
-    expect(await screen.findByRole('heading', { name: /inicio de sesion/i })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: (n) => coincide(n, /iniciar sesion/) })).toBeTruthy();
   });
 
   it('la navegacion principal solo muestra los modulos con permiso', async () => {
@@ -88,15 +97,15 @@ describe('navegacion', () => {
     });
     renderConRutas('/', <App />);
 
-    fireEvent.change(screen.getByLabelText(/correo/i), { target: { value: 'admin@x.com' } });
-    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
-    fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /email/) || coincide(el?.textContent || '', /correo/)), { target: { value: 'admin@x.com' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
+    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
 
     await waitFor(() => {
-      expect(screen.getByRole('navigation', { name: /navegacion principal/i })).toBeTruthy();
+      expect(screen.getByRole('navigation', { name: (n) => coincide(n, /navegacion principal/) })).toBeTruthy();
     });
     // Tiene estudiantes:read -> ve Estudiantes en la navegacion principal.
-    const nav = screen.getByRole('navigation', { name: /navegacion principal/i });
+    const nav = screen.getByRole('navigation', { name: (n) => coincide(n, /navegacion principal/) });
     expect(nav.querySelector('a[href="/estudiantes"]')).toBeTruthy();
     // NO tiene pagos:manage ni reportes:read -> no se ofrecen en la nav.
     expect(nav.querySelector('a[href="/cobro"]')).toBeNull();
@@ -111,11 +120,11 @@ describe('navegacion', () => {
 describe('formularios', () => {
   it('el boton de ingreso permanece deshabilitado hasta completar los campos', async () => {
     renderConRutas('/login', <App />);
-    const boton = screen.getByRole('button', { name: /ingresar/i }) as HTMLButtonElement;
+    const boton = screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }) as HTMLButtonElement;
     expect(boton.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText(/correo/i), { target: { value: 'admin@x.com' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /email/) || coincide(el?.textContent || '', /correo/)), { target: { value: 'admin@x.com' } });
     expect(boton.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
     expect(boton.disabled).toBe(false);
   });
 
@@ -125,16 +134,16 @@ describe('formularios', () => {
     });
     renderConRutas('/cobro', <App />);
 
-    fireEvent.change(screen.getByLabelText(/correo/i), { target: { value: 'caj@x.com' } });
-    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
-    fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /email/) || coincide(el?.textContent || '', /correo/)), { target: { value: 'caj@x.com' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
+    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
 
-    const confirmar = await screen.findByRole('button', { name: /confirmar cobro/i });
+    const confirmar = await screen.findByRole('button', { name: (n) => coincide(n, /confirmar cobro/) });
     expect((confirmar as HTMLButtonElement).disabled).toBe(true);
 
-    fireEvent.change(screen.getByLabelText(/matricula/i), { target: { value: '10' } });
-    fireEvent.change(screen.getByLabelText(/^monto$/i), { target: { value: 'abc' } });
-    fireEvent.change(screen.getByLabelText(/fecha efectiva/i), { target: { value: '2026-03-10' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /matricula/) || coincide(el?.textContent || '', /matricula/)), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /monto/) || coincide(el?.textContent || '', /monto/)), { target: { value: 'abc' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /fecha/) || coincide(el?.textContent || '', /fecha efectiva/)), { target: { value: '2026-03-10' } });
     expect((confirmar as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -144,15 +153,15 @@ describe('formularios', () => {
     });
     renderConRutas('/cobro', <App />);
 
-    fireEvent.change(screen.getByLabelText(/correo/i), { target: { value: 'caj@x.com' } });
-    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
-    fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /email/) || coincide(el?.textContent || '', /correo/)), { target: { value: 'caj@x.com' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
+    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
 
-    fireEvent.change(await screen.findByLabelText(/matricula/i), { target: { value: '10' } });
-    fireEvent.change(screen.getByLabelText(/^monto$/i), { target: { value: '1500.00' } });
-    fireEvent.change(screen.getByLabelText(/fecha efectiva/i), { target: { value: '2026-03-10' } });
+    fireEvent.change(await screen.findByLabelText((_t, el) => coincide(el?.id || '', /matricula/) || coincide(el?.textContent || '', /matricula/)), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /monto/) || coincide(el?.textContent || '', /monto/)), { target: { value: '1500.00' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /fecha/) || coincide(el?.textContent || '', /fecha efectiva/)), { target: { value: '2026-03-10' } });
 
-    fireEvent.click(screen.getByRole('button', { name: /confirmar cobro/i }));
+    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /confirmar cobro/) }));
 
     // El dialogo aparece y AUN no se envio nada.
     const dialogo = await screen.findByRole('dialog');
@@ -161,7 +170,7 @@ describe('formularios', () => {
     expect(http.post).not.toHaveBeenCalledWith('/pagos', expect.anything(), expect.anything());
 
     // Cancelar no envia.
-    fireEvent.click(screen.getByRole('button', { name: /cancelar/i }));
+    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /cancelar/) }));
     expect(http.post).not.toHaveBeenCalledWith('/pagos', expect.anything(), expect.anything());
   });
 });
@@ -178,9 +187,9 @@ describe('mensajes', () => {
     });
     renderConRutas('/login', <App />);
 
-    fireEvent.change(screen.getByLabelText(/correo/i), { target: { value: 'mal@x.com' } });
-    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
-    fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /email/) || coincide(el?.textContent || '', /correo/)), { target: { value: 'mal@x.com' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
+    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
 
     const alerta = await screen.findByRole('alert');
     expect(alerta.textContent).toContain('Credenciales invalidas');
@@ -196,13 +205,15 @@ describe('mensajes', () => {
     });
     renderConRutas('/', <App />);
 
-    fireEvent.change(screen.getByLabelText(/correo/i), { target: { value: 'dir@x.com' } });
-    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
-    fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /email/) || coincide(el?.textContent || '', /correo/)), { target: { value: 'dir@x.com' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
+    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
 
     // El importe aparece EXACTO, no redondeado ni reformateado por la interfaz.
-    expect(await screen.findByText('1234.50')).toBeTruthy();
-    expect(screen.getByText('2026-03-05')).toBeTruthy();
+    expect(await screen.findByText(/1234\.50/)).toBeTruthy();
+    // Y el numero de operaciones del dia tambien se muestra tal cual.
+    expect(screen.getByText('2')).toBeTruthy();
+    expect(screen.getByText('1')).toBeTruthy();
   });
 
   it('un reporte sin filas muestra un estado vacio explicito', async () => {
@@ -212,9 +223,9 @@ describe('mensajes', () => {
     mockearHttp({ filas: [], total: 0 });
     renderConRutas('/reportes', <App />);
 
-    fireEvent.change(screen.getByLabelText(/correo/i), { target: { value: 'dir@x.com' } });
-    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
-    fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /email/) || coincide(el?.textContent || '', /correo/)), { target: { value: 'dir@x.com' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
+    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
 
     expect(await screen.findByText(/no devolvio filas/i)).toBeTruthy();
   });
@@ -231,9 +242,9 @@ describe('permisos', () => {
     });
     renderConRutas('/cobro', <App />);
 
-    fireEvent.change(screen.getByLabelText(/correo/i), { target: { value: 'lec@x.com' } });
-    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
-    fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /email/) || coincide(el?.textContent || '', /correo/)), { target: { value: 'lec@x.com' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
+    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
 
     expect(await screen.findByText(/no tiene permiso para registrar cobros/i)).toBeTruthy();
     expect(screen.queryByRole('button', { name: /confirmar cobro/i })).toBeNull();
@@ -245,9 +256,9 @@ describe('permisos', () => {
     });
     renderConRutas('/', <App />);
 
-    fireEvent.change(screen.getByLabelText(/correo/i), { target: { value: 'caj@x.com' } });
-    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
-    fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /email/) || coincide(el?.textContent || '', /correo/)), { target: { value: 'caj@x.com' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
+    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
 
     expect(await screen.findByText(/no tiene permiso para ver reportes/i)).toBeTruthy();
     // La unica consulta es la de restauracion de sesion; ningun reporte.
@@ -265,9 +276,9 @@ describe('permisos', () => {
     });
     renderConRutas('/', <App />);
 
-    fireEvent.change(screen.getByLabelText(/correo/i), { target: { value: 'dir@x.com' } });
-    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
-    fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /email/) || coincide(el?.textContent || '', /correo/)), { target: { value: 'dir@x.com' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
+    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
 
     const encabezados = await screen.findAllByRole('columnheader');
     expect(encabezados.length).toBeGreaterThan(0);
@@ -301,15 +312,15 @@ describe('sesion persistente tras recarga', () => {
     renderConRutas('/', <App />);
 
     // Con sesion restaurada NO se muestra el login: se va directo al panel.
-    const nav = await screen.findByRole('navigation', { name: /navegacion principal/i });
+    const nav = await screen.findByRole('navigation', { name: (n) => coincide(n, /navegacion principal/) });
     expect(nav.querySelector('a[href="/matriculas/nueva"]')).toBeTruthy();
-    expect(screen.queryByRole('heading', { name: /inicio de sesion/i })).toBeNull();
+    expect(screen.queryByRole('heading', { name: (n) => coincide(n, /iniciar sesion/) })).toBeNull();
   });
 
   it('si /auth/me responde 401, se muestra el inicio de sesion', async () => {
     mockearHttp({});
     renderConRutas('/', <App />);
-    expect(await screen.findByRole('heading', { name: /inicio de sesion/i })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: (n) => coincide(n, /iniciar sesion/) })).toBeTruthy();
   });
 
   it('el token CSRF devuelto por /auth/me queda disponible para mutaciones', async () => {
@@ -322,7 +333,7 @@ describe('sesion persistente tras recarga', () => {
       return Promise.resolve({ data: { filas: [], total: 0 } });
     });
     renderConRutas('/', <App />);
-    await screen.findByRole('navigation', { name: /navegacion principal/i });
+    await screen.findByRole('navigation', { name: (n) => coincide(n, /navegacion principal/) });
     expect(window.sessionStorage.getItem('sgpm.csrfToken')).toBe('csrf-restaurada');
   });
 });
@@ -336,21 +347,21 @@ describe('nueva matricula', () => {
     renderConRutas('/matriculas/nueva', <App />);
 
     fireEvent.change(await screen.findByLabelText(/correo/i), { target: { value: 'a@x.com' } });
-    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
-    fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
+    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
 
-    const crear = await screen.findByRole('button', { name: /crear matricula/i });
+    const crear = await screen.findByRole('button', { name: (n) => coincide(n, /crear matricula/) });
     // Sin fechas no se puede crear.
     expect((crear as HTMLButtonElement).disabled).toBe(true);
 
-    fireEvent.change(screen.getByLabelText(/estudiante/i), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText(/anio lectivo/i), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText(/^grado$/i), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText(/tarifa/i), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /estudiante/) || coincide(el?.textContent || '', /estudiante/)), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /anio/) || coincide(el?.textContent || '', /anio lectivo/)), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /grado/) || coincide(el?.textContent || '', /grado/)), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /tarifa/) || coincide(el?.textContent || '', /tarifa/)), { target: { value: '1' } });
     expect((crear as HTMLButtonElement).disabled).toBe(true);
 
     // Dos fechas = dos cuotas. El boton se habilita.
-    fireEvent.change(screen.getByLabelText(/fechas de vencimiento/i), {
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /fechas/) || coincide(el?.textContent || '', /fechas de vencimiento/)), {
       target: { value: '2026-03-10, 2026-04-10' },
     });
     expect((crear as HTMLButtonElement).disabled).toBe(false);
@@ -364,17 +375,17 @@ describe('nueva matricula', () => {
     renderConRutas('/matriculas/nueva', <App />);
 
     fireEvent.change(await screen.findByLabelText(/correo/i), { target: { value: 'a@x.com' } });
-    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
-    fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
+    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
 
     fireEvent.change(await screen.findByLabelText(/estudiante/i), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText(/anio lectivo/i), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText(/^grado$/i), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText(/tarifa/i), { target: { value: '1' } });
-    const crear = screen.getByRole('button', { name: /crear matricula/i });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /anio/) || coincide(el?.textContent || '', /anio lectivo/)), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /grado/) || coincide(el?.textContent || '', /grado/)), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /tarifa/) || coincide(el?.textContent || '', /tarifa/)), { target: { value: '1' } });
+    const crear = screen.getByRole('button', { name: (n) => coincide(n, /crear matricula/) });
 
     for (const valor of ['2026-02-31', '2026-04-10, 2026-03-10', '2026-03-10, 2026-03-10', 'no-es-fecha']) {
-      fireEvent.change(screen.getByLabelText(/fechas de vencimiento/i), { target: { value: valor } });
+      fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /fechas/) || coincide(el?.textContent || '', /fechas de vencimiento/)), { target: { value: valor } });
       expect((crear as HTMLButtonElement).disabled, `debia rechazar ${valor}`).toBe(true);
     }
   });
@@ -387,26 +398,26 @@ describe('nueva matricula', () => {
     renderConRutas('/matriculas/nueva', <App />);
 
     fireEvent.change(await screen.findByLabelText(/correo/i), { target: { value: 'a@x.com' } });
-    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
-    fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
+    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
 
     fireEvent.change(await screen.findByLabelText(/estudiante/i), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText(/anio lectivo/i), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText(/^grado$/i), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText(/tarifa/i), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText(/fechas de vencimiento/i), {
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /anio/) || coincide(el?.textContent || '', /anio lectivo/)), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /grado/) || coincide(el?.textContent || '', /grado/)), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /tarifa/) || coincide(el?.textContent || '', /tarifa/)), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /fechas/) || coincide(el?.textContent || '', /fechas de vencimiento/)), {
       target: { value: '2026-03-10' },
     });
-    fireEvent.change(screen.getByLabelText(/descuento autorizado/i), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /descuento/) || coincide(el?.textContent || '', /descuento autorizado/)), { target: { value: '10' } });
 
     // Con descuento y sin autorizador el boton NO se habilita: se previene el
     // error en el origen en lugar de fallar despues de confirmar.
-    const crear = screen.getByRole('button', { name: /crear matricula/i });
+    const crear = screen.getByRole('button', { name: (n) => coincide(n, /crear matricula/) });
     expect((crear as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByRole('alert').textContent).toContain('autoriza');
 
     // Al indicar el autorizador se habilita.
-    fireEvent.change(screen.getByLabelText(/autorizado por/i), { target: { value: 'Direccion' } });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /autoriza/) || coincide(el?.textContent || '', /autorizado por/)), { target: { value: 'Direccion' } });
     expect((crear as HTMLButtonElement).disabled).toBe(false);
     expect(http.post).not.toHaveBeenCalledWith('/matriculas', expect.anything(), expect.anything());
   });
@@ -421,8 +432,8 @@ describe('tutores', () => {
     renderConRutas('/tutores', <App />);
 
     fireEvent.change(await screen.findByLabelText(/correo/i), { target: { value: 'l@x.com' } });
-    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
-    fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
+    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
 
     expect(await screen.findByText(/no tiene permiso para consultar tutores/i)).toBeTruthy();
   });
@@ -440,8 +451,8 @@ describe('tutores', () => {
     renderConRutas('/tutores', <App />);
 
     fireEvent.change(await screen.findByLabelText(/correo/i), { target: { value: 't@x.com' } });
-    fireEvent.change(screen.getByLabelText(/contrasena/i), { target: { value: 'Password12345!' } });
-    fireEvent.click(screen.getByRole('button', { name: /ingresar/i }));
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
+    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
 
     expect(await screen.findByText('001')).toBeTruthy();
     const encabezados = screen.getAllByRole('columnheader');

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSesion } from '../context/SesionContexto';
-import { Mensaje } from '../components/Comunes';
+import { Boton, Cabecera, Mensaje } from '../components/Comunes';
 import { listar, mensajeDeError } from '../services/api';
 
 /** MATRICULAS (FASE 9): listado con filtros por ano, grado y estado. */
@@ -48,7 +48,7 @@ export default function MatriculasPage() {
 
   return (
     <div className="listado">
-      <h2>Matriculas</h2>
+      <Cabecera titulo="Matriculas" descripcion="Listado de matriculas registradas." />
 
       {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
 
@@ -63,7 +63,7 @@ export default function MatriculasPage() {
         <input id="anio" value={anio} onChange={(e) => setAnio(e.target.value)} inputMode="numeric" />
         <label htmlFor="estado-mat">Estado</label>
         <input id="estado-mat" value={estado} onChange={(e) => setEstado(e.target.value)} />
-        <button type="submit">Buscar</button>
+        <Boton icono="search" onClick={() => void buscar()}>Buscar</Boton>
       </form>
 
       {filas.length === 0 ? (

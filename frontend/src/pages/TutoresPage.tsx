@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSesion } from '../context/SesionContexto';
-import { Mensaje } from '../components/Comunes';
+import { Boton, Cabecera, Mensaje } from '../components/Comunes';
 import { listar, mensajeDeError } from '../services/api';
 
 /** TUTORES (FASE 9): listado con busqueda por documento. */
@@ -46,7 +46,7 @@ export default function TutoresPage() {
 
   return (
     <div className="listado">
-      <h2>Tutores y responsables</h2>
+      <Cabecera titulo="Tutores y responsables" descripcion="Personas de contacto de los estudiantes." />
 
       {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
 
@@ -63,7 +63,7 @@ export default function TutoresPage() {
           value={documento}
           onChange={(e) => setDocumento(e.target.value)}
         />
-        <button type="submit">Buscar</button>
+        <Boton icono="search" onClick={() => void buscar()}>Buscar</Boton>
       </form>
 
       {filas.length === 0 ? (

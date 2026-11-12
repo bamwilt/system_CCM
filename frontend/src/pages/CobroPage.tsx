@@ -1,22 +1,47 @@
-import { useState } from 'react';
-import { useSesion } from '../context/SesionContexto';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Boton, Campo, Confirmacion, Cargando, Mensaje, Notificacion } from '../components/Comunes';
-import { mutationHeaders } from '../services/api';
+import { useSesion } from '../context/SesionContexto';
+import { Boton, Cabecera, Campo, Cargando, Confirmacion, Etiqueta, Importe, Mensaje, Notificacion } from '../components/Comunes';
+import { listar, mutationHeaders, mensajeDeError } from '../services/api';
 import api from '../services/api';
 
 /**
- * REGISTRAR COBRO (FASE 9) — la tarea frecuente y la mas critica.
+ * ============================================================================
+ * REGISTRAR COBRO — PANTALLA PRINCIPAL (FASE 9.B)
+ * ============================================================================
  *
- * Requisito del PM: "No utilizar animaciones innecesarias que retrasen el
- * registro de pagos" y "El personal administrativo debe poder realizar las
- * tareas frecuentes con una cantidad razonable de interacciones".
+ * Es la tarea frecuente del personal de ventanilla (PM: "El personal
+ * administrativo debe poder realizar las tareas frecuentes con una cantidad
+ * razonable de interacciones"), por eso es la pantalla de inicio de la
+ * aplicacion.
  *
- * Prevencion de errores:
- * - el boton se deshabilita mientras se envia (no hay doble clic posible);
- * - la confirmacion es explícita antes de afectar saldos;
- * - los importes viajan como texto exacto, sin conversion a Number.
+ * Distribucion en dos columnas: el formulario a la izquierda, el resumen de la
+ * operacion a la derecha. La persona ve cuanto va a cobrar ANTES de confirmar,
+ * que es prevencion de errores.
+ *
+ * El panel derecho muestra las cuotas pendientes de la matricula consultada,
+ * para no cobrar a ciegas.
  */
+
+interface CuotaPendiente {
+  mensualidad_id: number;
+  numero_cuota: number;
+  fecha_vencimiento: string;
+  saldo_pendiente: string;
+  monto_original: string;
+  estado: string;
+}
+
+interface FilaPendientes {
+  mensualidad_id: number;
+  matricula_id: number;
+  estudiante_nombre: string;
+  numero_cuota: number;
+  fecha_vencimiento: string;
+  saldo_pendiente: string;
+  saldo_total: string;
+  moneda: string | null;
+}
 
 interface ResultadoCobro {
   pago: { id: number; monto_total: string; estado: string };
@@ -27,27 +52,97 @@ interface ResultadoCobro {
 export default function CobroPage() {
   const { puede } = useSesion();
   const navegar = useNavigate();
+
   const [matriculaId, setMatriculaId] = useState('');
   const [monto, setMonto] = useState('');
-  const [fechaEfectiva, setFechaEfectiva] = useState('');
+  const [fechaEfectiva, setFechaEfectiva] = useState(new Date().toISOString().slice(0, 10));
   const [medio, setMedio] = useState('EFECTIVO');
-  const [motivoIdempotencia, setMotivoIdempotencia] = useState('');
+  const [referencia, setReferencia] = useState('');
+  const [clave, setClave] = useState('');
+
+  const [cuotas, setCuotas] = useState<CuotaPendiente[]>([]);
+  const [consultando, setConsultando] = useState(false);
+  const [totalPendiente, setTotalPendiente] = useState<string | null>(null);
+
   const [confirmando, setConfirmando] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nota, setNota] = useState<string | null>(null);
   const [resultado, setResultado] = useState<ResultadoCobro | null>(null);
 
-  // Sin permiso no se muestra el formulario: la ruta igual lo rechazaria.
   if (!puede('pagos:manage')) {
-    return <Mensaje tipo="info">Su usuario no tiene permiso para registrar cobros.</Mensaje>;
+    return (
+      <>
+        <Cabecera titulo="Registrar cobro" />
+        <Mensaje tipo="info">Su usuario no tiene permiso para registrar cobros.</Mensaje>
+      </>
+    );
   }
+
+  async function consultarCuotas() {
+    if (!/^[1-9][0-9]*$/.test(matriculaId.trim())) {
+      return;
+    }
+    setConsultando(true);
+    setError(null);
+    try {
+      // El detalle del plan trae las cuotas con su saldo almacenado.
+      const r = await api.get<{
+        plan_pago: { plan_pago_id: number } | null;
+        mensualidades: Array<{
+          id: number;
+          numero_cuota: number;
+          saldo_pendiente: string;
+          monto_original: string;
+          estado: string;
+          fecha_vencimiento: string;
+        }>;
+      }>(`/matriculas/${matriculaId.trim()}/plan-pago`);
+      setCuotas(
+        (r.data.mensualidades ?? []).map((m) => ({
+          mensualidad_id: m.id,
+          numero_cuota: m.numero_cuota,
+          fecha_vencimiento: String(m.fecha_vencimiento).slice(0, 10),
+          saldo_pendiente: m.saldo_pendiente,
+          monto_original: m.monto_original,
+          estado: m.estado,
+        }))
+      );
+    } catch (e) {
+      setCuotas([]);
+      setError(mensajeDeError(e));
+    } finally {
+      setConsultando(false);
+    }
+  }
+
+  useEffect(() => {
+    const pendientes = cuotas.filter((c) => Number(c.saldo_pendiente) > 0);
+    if (pendientes.length === 0) {
+      setTotalPendiente(null);
+      return;
+    }
+    void (async () => {
+      try {
+        const r = await listar<FilaPendientes>(
+          `/reportes/estudiantes-pendientes?matricula_id=${matriculaId.trim()}&limite=1`
+        );
+        setTotalPendiente(r.filas[0]?.saldo_total ?? null);
+      } catch {
+        setTotalPendiente(null);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cuotas, matriculaId]);
+
+  const montoValido = /^[0-9]+(\.[0-9]{1,2})?$/.test(monto.trim()) && Number(monto.trim()) > 0;
+  const excedeDeuda = totalPendiente !== null && montoValido && Number(monto) > Number(totalPendiente);
 
   function valido(): boolean {
     return (
       /^[1-9][0-9]*$/.test(matriculaId.trim()) &&
-      /^[0-9]+(\.[0-9]{1,2})?$/.test(monto.trim()) &&
-      Number(monto.trim()) > 0 &&
+      montoValido &&
+      !excedeDeuda &&
       /^\d{4}-\d{2}-\d{2}$/.test(fechaEfectiva.trim())
     );
   }
@@ -60,22 +155,26 @@ export default function CobroPage() {
       const cuerpo: Record<string, unknown> = {
         matricula_id: Number(matriculaId.trim()),
         fecha_efectiva: fechaEfectiva.trim(),
-        medios: [{ tipo: medio, monto: monto.trim() }],
+        medios: [
+          {
+            tipo: medio,
+            monto: monto.trim(),
+            ...(referencia.trim() !== '' ? { referencia: referencia.trim() } : {}),
+          },
+        ],
       };
-      if (motivoIdempotencia.trim() !== '') {
-        cuerpo.idempotency_key = motivoIdempotencia.trim();
+      if (clave.trim() !== '') {
+        cuerpo.idempotency_key = clave.trim();
       }
-      const respuesta = await api.post('/pagos', cuerpo, { headers: mutationHeaders() });
-      setResultado(respuesta.data as ResultadoCobro);
+      const r = await api.post('/pagos', cuerpo, { headers: mutationHeaders() });
+      setResultado(r.data as ResultadoCobro);
       setNota('Cobro registrado correctamente.');
-      setMatriculaId('');
       setMonto('');
-      setMotivoIdempotencia('');
+      setClave('');
+      setReferencia('');
+      await consultarCuotas();
     } catch (e) {
-      const mensaje =
-        (e as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
-          ?.message;
-      setError(typeof mensaje === 'string' ? mensaje : 'No se pudo registrar el cobro.');
+      setError(mensajeDeError(e));
     } finally {
       setEnviando(false);
       setConfirmando(false);
@@ -83,120 +182,222 @@ export default function CobroPage() {
   }
 
   return (
-    <div className="cobro">
-      <h2>Registrar cobro</h2>
+    <>
+      <Cabecera
+        titulo="Registrar cobro"
+        descripcion="El cobro se aplica a las cuotas vencidas más antiguas primero."
+        accion={
+          <Boton tipo="secundario" icono="receipt_long" onClick={() => navegar('/reportes')}>
+            Ver reportes
+          </Boton>
+        }
+      />
 
-      {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
+      {error ? <Mensaje tipo="error" onCerrar={() => setError(null)}>{error}</Mensaje> : null}
       {nota ? <Notificacion tipo="exito" texto={nota} onCerrar={() => setNota(null)} /> : null}
 
-      <form
-        onSubmit={(evento) => {
-          evento.preventDefault();
-          if (valido()) {
-            setConfirmando(true);
-          }
-        }}
-      >
-        <Campo etiqueta="Matricula" identificador="matricula">
-          <input
-            id="matricula"
-            inputMode="numeric"
-            value={matriculaId}
-            onChange={(e) => setMatriculaId(e.target.value)}
-          />
-        </Campo>
+      <div className="cobro">
+        <div className="tarjeta">
+          <form
+            onSubmit={(evento) => {
+              evento.preventDefault();
+              if (valido()) {
+                setConfirmando(true);
+              }
+            }}
+          >
+            <Campo etiqueta="Matrícula" identificador="matricula">
+              <div style={{ display: 'flex', gap: 'var(--esp-2)' }}>
+                <input
+                  id="matricula"
+                  inputMode="numeric"
+                  value={matriculaId}
+                  onChange={(e) => setMatriculaId(e.target.value)}
+                  onBlur={() => void consultarCuotas()}
+                  placeholder="Número de matrícula"
+                />
+                <Boton tipo="secundario" icono="search" cargando={consultando} onClick={() => void consultarCuotas()}>
+                  Consultar
+                </Boton>
+              </div>
+            </Campo>
 
-        <Campo etiqueta="Monto" identificador="monto" ayuda="Use punto decimal, por ejemplo 1500.00">
-          <input
-            id="monto"
-            inputMode="decimal"
-            value={monto}
-            onChange={(e) => setMonto(e.target.value)}
-          />
-        </Campo>
+            <Campo
+              etiqueta="Monto"
+              identificador="monto"
+              error={excedeDeuda ? `El monto supera la deuda pendiente (${totalPendiente})` : null}
+              ayuda="Use punto decimal, por ejemplo 1500.00"
+            >
+              <input
+                id="monto"
+                inputMode="decimal"
+                value={monto}
+                onChange={(e) => setMonto(e.target.value)}
+                aria-invalid={excedeDeuda}
+                placeholder="0.00"
+              />
+            </Campo>
 
-        <Campo etiqueta="Fecha efectiva" identificador="fecha">
-          <input
-            id="fecha"
-            type="date"
-            value={fechaEfectiva}
-            onChange={(e) => setFechaEfectiva(e.target.value)}
-          />
-        </Campo>
+            <Campo etiqueta="Fecha efectiva" identificador="fecha" ayuda="Determina si corresponde mora.">
+              <input
+                id="fecha"
+                type="date"
+                value={fechaEfectiva}
+                onChange={(e) => setFechaEfectiva(e.target.value)}
+              />
+            </Campo>
 
-        <Campo etiqueta="Medio de pago" identificador="medio">
-          <select id="medio" value={medio} onChange={(e) => setMedio(e.target.value)}>
-            <option value="EFECTIVO">Efectivo</option>
-            <option value="TARJETA">Tarjeta</option>
-            <option value="TRANSFERENCIA">Transferencia</option>
-          </select>
-        </Campo>
+            <Campo etiqueta="Medio de pago" identificador="medio">
+              <select id="medio" value={medio} onChange={(e) => setMedio(e.target.value)}>
+                <option value="EFECTIVO">Efectivo</option>
+                <option value="TARJETA">Tarjeta</option>
+                <option value="TRANSFERENCIA">Transferencia</option>
+              </select>
+            </Campo>
 
-        <Campo
-          etiqueta="Clave de reintento (opcional)"
-          identificador="idem"
-          ayuda="Si el cobro se interrumpe, repitalo con la misma clave: no se duplicara."
-        >
-          <input
-            id="idem"
-            value={motivoIdempotencia}
-            onChange={(e) => setMotivoIdempotencia(e.target.value)}
-          />
-        </Campo>
+            {medio !== 'EFECTIVO' || referencia.trim() !== '' ? (
+              <Campo etiqueta="Referencia" identificador="referencia" ayuda="Número de autorización o comprobante.">
+                <input
+                  id="referencia"
+                  value={referencia}
+                  onChange={(e) => setReferencia(e.target.value)}
+                  placeholder="AUTH-0000"
+                />
+              </Campo>
+            ) : null}
 
-        <Boton tipo="primario" disabled={!valido()}>
-          Confirmar cobro
-        </Boton>
-      </form>
+            <Campo
+              etiqueta="Clave de reintento (opcional)"
+              identificador="idem"
+              ayuda="Si la operación se interrumpe, repítala con la misma clave: no se duplicará el cobro."
+            >
+              <input
+                id="idem"
+                value={clave}
+                onChange={(e) => setClave(e.target.value)}
+                placeholder="cobro-0001"
+              />
+            </Campo>
 
-      {enviando ? <Cargando texto="Registrando cobro..." /> : null}
+            <Boton tipo="primario" bloque grande icono="payments" disabled={!valido()}>
+              Confirmar cobro
+            </Boton>
+          </form>
+        </div>
+
+        <div className="tarjeta cobro__panel">
+          <h3>Resumen de la operación</h3>
+          <dl style={{ margin: 0 }}>
+            <div className="cobro__resumen">
+              <dt>Matrícula</dt>
+              <dd>{matriculaId.trim() || '—'}</dd>
+            </div>
+            <div className="cobro__resumen">
+              <dt>Monto a cobrar</dt>
+              <dd>{montoValido ? monto : '—'}</dd>
+            </div>
+            <div className="cobro__resumen">
+              <dt>Medio</dt>
+              <dd>{medio}</dd>
+            </div>
+            <div className="cobro__resumen">
+              <dt>Deuda pendiente</dt>
+              <dd>
+                {totalPendiente !== null ? <Importe valor={totalPendiente} /> : '—'}
+              </dd>
+            </div>
+          </dl>
+
+          <h3 style={{ marginTop: 'var(--esp-5)' }}>Cuotas</h3>
+          {consultando ? (
+            <Cargando texto="Consultando cuotas…" />
+          ) : cuotas.length === 0 ? (
+            <p style={{ color: 'var(--texto-suave)', fontSize: 'var(--texto-md)' }}>
+              Consulte una matrícula para ver sus cuotas.
+            </p>
+          ) : (
+            <table className="tabla">
+              <thead>
+                <tr>
+                  <th scope="col">#</th>
+                  <th scope="col">Vence</th>
+                  <th scope="col" className="tabla__numerico">
+                    Saldo
+                  </th>
+                  <th scope="col">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cuotas.map((c) => (
+                  <tr key={c.mensualidad_id}>
+                    <td>{c.numero_cuota}</td>
+                    <td>{c.fecha_vencimiento}</td>
+                    <td className="tabla__numerico">
+                      <Importe valor={c.saldo_pendiente} />
+                    </td>
+                    <td>
+                      <Etiqueta
+                        tipo={Number(c.saldo_pendiente) === 0 ? 'exito' : 'aviso'}
+                        icono={Number(c.saldo_pendiente) === 0 ? 'check_circle' : 'schedule'}
+                      >
+                        {Number(c.saldo_pendiente) === 0 ? 'Pagada' : 'Pendiente'}
+                      </Etiqueta>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
 
       {confirmando ? (
         <Confirmacion
           titulo="Confirmar el cobro"
-          mensaje={`Se registrara un cobro de ${monto} por ${medio} sobre la matricula ${matriculaId}. Esta operacion afecta los saldos.`}
-          textoConfirmar="Si, registrar"
+          mensaje={`Se registrará un cobro de ${monto} por ${medio} sobre la matrícula ${matriculaId.trim()} con fecha efectiva ${fechaEfectiva}. Esta operación afecta los saldos.`}
+          textoConfirmar="Sí, registrar"
           onConfirmar={registrar}
           onCancelar={() => setConfirmando(false)}
           cargando={enviando}
+          icono="payments"
         />
       ) : null}
 
       {resultado ? (
-        <section className="cobro__resultado">
+        <div className="tarjeta tarjeta--destacada" style={{ marginTop: 'var(--esp-6)' }}>
           <h3>Cobro registrado</h3>
           <p>
-            Pago <strong>#{resultado.pago.id}</strong> por {resultado.pago.monto_total} — estado{' '}
-            {resultado.pago.estado}.
+            Pago <strong>#{resultado.pago.id}</strong> por {resultado.pago.monto_total}.{' '}
+            {resultado.comprobante.numero_comprobante ? (
+              <>
+                Comprobante <strong>{resultado.comprobante.numero_comprobante}</strong>.
+              </>
+            ) : null}
           </p>
-          {resultado.comprobante.numero_comprobante ? (
-            <p>
-              Comprobante <strong>{resultado.comprobante.numero_comprobante}</strong>.
-            </p>
-          ) : null}
-          <table className="tabla">
+          <table className="tabla" style={{ marginTop: 'var(--esp-4)' }}>
             <thead>
               <tr>
                 <th scope="col">Cuota</th>
-                <th scope="col">Aplicado</th>
-                <th scope="col">Saldo</th>
+                <th scope="col" className="tabla__numerico">
+                  Aplicado
+                </th>
+                <th scope="col" className="tabla__numerico">
+                  Saldo restante
+                </th>
               </tr>
             </thead>
             <tbody>
               {resultado.aplicaciones.map((a) => (
                 <tr key={a.numero_cuota}>
                   <td>{a.numero_cuota}</td>
-                  <td>{a.monto_aplicado}</td>
-                  <td>{a.saldo_pendiente}</td>
+                  <td className="tabla__numerico">{a.monto_aplicado}</td>
+                  <td className="tabla__numerico">{a.saldo_pendiente}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <Boton tipo="secundario" onClick={() => navegar('/reportes')}>
-            Ver reportes
-          </Boton>
-        </section>
+        </div>
       ) : null}
-    </div>
+    </>
   );
 }

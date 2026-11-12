@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSesion } from '../context/SesionContexto';
-import { Campo, Filtros, Mensaje, Tabla } from '../components/Comunes';
+import { Boton, Cabecera, Campo, Filtros, Mensaje, Paginacion, Tabla } from '../components/Comunes';
 import { listar, mensajeDeError } from '../services/api';
 
 /**
@@ -63,7 +63,7 @@ export default function EstudiantesPage() {
 
   return (
     <div className="listado">
-      <h2>Estudiantes</h2>
+      <Cabecera titulo="Estudiantes" descripcion="Busque por documento o filtre por estado." />
 
       <Filtros onLimpiar={() => { setDocumento(''); setActivo('todos'); setLimite('25'); setCompensar('0'); }}>
         <Campo etiqueta="Documento" identificador="documento">
@@ -84,15 +84,12 @@ export default function EstudiantesPage() {
             <option value="false">Inactivos</option>
           </select>
         </Campo>
-        <button type="button" onClick={() => void buscar()}>
-          Buscar
-        </button>
+        <Boton icono="search" onClick={() => void buscar()}>Buscar</Boton>
       </Filtros>
 
       {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
       {cargando ? <p role="status">Buscando...</p> : null}
 
-      <p className="listado__total">Total: {total}</p>
 
       <Tabla<Estudiante>
         filas={filas}
@@ -103,31 +100,20 @@ export default function EstudiantesPage() {
           { encabezado: 'Correo', celda: (f) => f.email ?? '—' },
           { encabezado: 'Estado', celda: (f) => (f.activo ? 'Activo' : 'Inactivo') },
         ]}
-        vacio="No se encontraron estudiantes con esos filtros."
+        vacio={{ titulo: 'No se encontraron estudiantes con esos filtros.' }}
       />
 
-      <div className="listado__paginacion">
-        <button
-          type="button"
-          disabled={Number(compensar) === 0}
-          onClick={() => {
-            const anterior = Math.max(0, Number(compensar) - Number(limite));
-            setCompensar(String(anterior));
+      <div className="listado__pie">
+        <span>Total: {total}</span>
+        <Paginacion
+          compensar={Number(compensar)}
+          limite={Number(limite)}
+          total={total}
+          onCambiar={(nuevo) => {
+            setCompensar(String(nuevo));
             void buscar();
           }}
-        >
-          Anterior
-        </button>
-        <button
-          type="button"
-          disabled={Number(compensar) + Number(limite) >= total}
-          onClick={() => {
-            setCompensar(String(Number(compensar) + Number(limite)));
-            void buscar();
-          }}
-        >
-          Siguiente
-        </button>
+        />
       </div>
     </div>
   );
