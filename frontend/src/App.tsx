@@ -12,6 +12,7 @@ import NuevaMatriculaPage from './pages/NuevaMatriculaPage';
 import MatriculasPage from './pages/MatriculasPage';
 import ReportesPage from './pages/ReportesPage';
 import ResumenPage from './pages/ResumenPage';
+import ConfiguracionPage from './pages/ConfiguracionPage';
 
 /**
  * RUTAS (FASE 9)
@@ -46,7 +47,10 @@ function App() {
         <Route path="/tutores" element={<TutoresPage />} />
         <Route path="/reportes" element={<ReportesPage />} />
         <Route path="/resumen" element={<ResumenPage />} />
-        <Route path="/login" element={<PanelPage />} />
+        <Route path="/configuracion" element={<ConfiguracionPage />} />
+        {/* Entrar por /login lleva al inicio (resumen); entrar directo a una
+            pantalla conserva esa pantalla. */}
+        <Route path="/login" element={<Navigate to="/" replace />} />
         <Route path="*" element={<HomePage />} />
       </Route>
     </Routes>

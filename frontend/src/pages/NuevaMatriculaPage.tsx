@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useSesion } from '../context/SesionContexto';
-import { Boton, Campo, Confirmacion, Cargando, Mensaje, Notificacion } from '../components/Comunes';
+import { Boton, Campo, Confirmacion, Cargando, Etiqueta, Mensaje, Notificacion } from '../components/Comunes';
 import { mutationHeaders } from '../services/api';
+import { conMoneda, iniciales } from '../utils/formato';
 import api from '../services/api';
 
 /**
@@ -43,6 +44,12 @@ interface Tarifa {
 export default function NuevaMatriculaPage() {
   const { puede } = useSesion();
   const [estudianteId, setEstudianteId] = useState('');
+  const [textoEstudiante, setTextoEstudiante] = useState('');
+  const [candidatos, setCandidatos] = useState<Array<{ id: number; nombres: string; apellidos: string; documento_identidad: string; activo: boolean }>>([]);
+  const [buscandoEstudiante, setBuscandoEstudiante] = useState(false);
+  // Al elegir una persona se llena el cuadro con su nombre: sin este bloqueo,
+  // ese texto volveria a disparar la busqueda y la lista reapareceria.
+  const [busquedaBloqueada, setBusquedaBloqueada] = useState(false);
   const [anioId, setAnioId] = useState('');
   const [gradoId, setGradoId] = useState('');
   const [tarifaId, setTarifaId] = useState('');
@@ -58,6 +65,37 @@ export default function NuevaMatriculaPage() {
   const [nota, setNota] = useState<string | null>(null);
   const [resultado, setResultado] = useState<{ matricula: { id: number }; plan_pago_id: number; total_cuotas: number } | null>(null);
 
+  // La lista de estudiantes se filtra mientras se escribe (mismo patron que la
+  // tabla de a quien cobrar): la persona elige, no escribe identificadores.
+  useEffect(() => {
+    if (busquedaBloqueada || textoEstudiante.trim().length < 2) {
+      setCandidatos([]);
+      return;
+    }
+    const espera = window.setTimeout(() => {
+      void (async () => {
+        setBuscandoEstudiante(true);
+        try {
+          const r = await api.get<{
+            estudiantes: Array<{
+              id: number;
+              nombres: string;
+              apellidos: string;
+              documento_identidad: string;
+              activo: boolean;
+            }>;
+          }>('/estudiantes', { params: { q: textoEstudiante.trim(), limite: 20 } });
+          setCandidatos(r.data.estudiantes ?? []);
+        } catch {
+          setCandidatos([]);
+        } finally {
+          setBuscandoEstudiante(false);
+        }
+      })();
+    }, 200);
+    return () => window.clearTimeout(espera);
+  }, [textoEstudiante, busquedaBloqueada]);
+
   useEffect(() => {
     if (!puede('matriculas:manage')) {
       return;
@@ -72,12 +110,46 @@ export default function NuevaMatriculaPage() {
         setAnios(rAnios.data.anios ?? []);
         setGrados(rGrados.data.grados ?? []);
         setTarifas(rTarifas.data.tarifas ?? []);
-      } catch {
-        // Los catalogos pueden no existir como endpoint: se deja vacio y la
-        // persona introduce los identificadores a mano.
+      } catch (e) {
+        setError('No se pudieron cargar los catalogos (años, grados, tarifas).');
       }
     })();
   }, [puede]);
+
+  // Grado y tarifa dependen del año elegido: se recargan al cambiarlo.
+  useEffect(() => {
+    if (anioId === '') {
+      return;
+    }
+    void (async () => {
+      try {
+        const [rGrados, rTarifas] = await Promise.all([
+          api.get<{ grados: Grado[] }>('/estudiantes/grados', { params: { anio_lectivo_id: anioId } }),
+          api.get<{ tarifas: Tarifa[] }>('/estudiantes/tarifas', { params: { anio_lectivo_id: anioId } }),
+        ]);
+        setGrados(rGrados.data.grados ?? []);
+        setTarifas(rTarifas.data.tarifas ?? []);
+        if (!rGrados.data.grados?.some((g) => String(g.id) === gradoId)) {
+          setGradoId('');
+        }
+        if (!rTarifas.data.tarifas?.some((t) => String(t.id) === tarifaId)) {
+          setTarifaId('');
+        }
+      } catch {
+        setGrados([]);
+        setTarifas([]);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anioId]);
+
+  const estudianteElegido = candidatos.find((c) => String(c.id) === estudianteId)
+    ? `${candidatos.find((c) => String(c.id) === estudianteId)?.nombres ?? ''} ${candidatos.find((c) => String(c.id) === estudianteId)?.apellidos ?? ''}`
+    : textoEstudiante;
+
+  // Los años se eligen: sin año no hay grados ni tarifas que ofrecer.
+  const gradosDelAnio = grados;
+  const tarifasDelAnio = tarifas;
 
   if (!puede('matriculas:manage')) {
     return <Mensaje tipo="info">Su usuario no tiene permiso para crear matriculas.</Mensaje>;
@@ -188,83 +260,111 @@ export default function NuevaMatriculaPage() {
         }}
       >
         <Campo etiqueta="Estudiante" identificador="estudiante">
-          <input
-            id="estudiante"
-            inputMode="numeric"
-            value={estudianteId}
-            onChange={(e) => setEstudianteId(e.target.value)}
-          />
+          <div className="buscador__entrada">
+            <input
+              id="estudiante"
+              type="search"
+              autoComplete="off"
+              value={textoEstudiante}
+              placeholder="Busque por nombre, apellido o documento"
+              onChange={(e) => {
+                setBusquedaBloqueada(false);
+                setTextoEstudiante(e.target.value);
+                if (e.target.value === '') {
+                  setEstudianteId('');
+                }
+              }}
+            />
+          </div>
+          {/* Lista de personas reales: elegir, no escribir un numero. */}
+          {textoEstudiante.trim().length >= 2 && !busquedaBloqueada ? (
+            <ul className="buscador__resultados">
+              {buscandoEstudiante ? (
+                <li>
+                  <Cargando texto="Buscando estudiantes…" />
+                </li>
+              ) : candidatos.length === 0 ? (
+                <li>
+                  <p className="buscador__vacio">Ningún estudiante coincide con “{textoEstudiante}”.</p>
+                </li>
+              ) : (
+                candidatos.map((e) => (
+                  <li key={e.id}>
+                    <button
+                      type="button"
+                      className="buscador__opcion"
+                      onClick={() => {
+                        setEstudianteId(String(e.id));
+                        setTextoEstudiante(`${e.nombres} ${e.apellidos}`);
+                        setBusquedaBloqueada(true);
+                        setCandidatos([]);
+                        setAnioId('');
+                        setGradoId('');
+                        setTarifaId('');
+                      }}
+                    >
+                      <span className="buscador__avatar" aria-hidden="true">
+                        {iniciales(`${e.nombres} ${e.apellidos}`)}
+                      </span>
+                      <span className="buscador__texto">
+                        <span className="buscador__nombre">
+                          {e.nombres} {e.apellidos}
+                        </span>
+                        <span className="buscador__meta">
+                          documento {e.documento_identidad} · estudiante #{e.id}
+                        </span>
+                      </span>
+                      {e.activo ? null : <Etiqueta tipo="aviso">Inactivo</Etiqueta>}
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+          ) : null}
+          {estudianteId !== '' ? (
+            <p className="campo__pie">
+              Seleccionado: <strong>{estudianteElegido}</strong>
+            </p>
+          ) : (
+            <p className="campo__pie">Escriba al menos dos letras para buscar.</p>
+          )}
         </Campo>
 
-        <Campo etiqueta="Anio lectivo" identificador="anio">
-          {anios.length > 0 ? (
-            <select id="anio" value={anioId} onChange={(e) => setAnioId(e.target.value)}>
-              <option value="">Seleccione</option>
-              {anios.map((a) => (
-                <option key={a.id} value={String(a.id)}>
-                  {a.anio}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <input
-              id="anio"
-              inputMode="numeric"
-              value={anioId}
-              onChange={(e) => setAnioId(e.target.value)}
-            />
-          )}
+        <Campo etiqueta="Anio lectivo" identificador="anio" ayuda="Del año depende qué grados y tarifas se ofrecen.">
+          <select id="anio" value={anioId} onChange={(e) => setAnioId(e.target.value)}>
+            <option value="">Seleccione el año</option>
+            {anios.map((a) => (
+              <option key={a.id} value={String(a.id)}>
+                {a.anio}
+              </option>
+            ))}
+          </select>
         </Campo>
 
         <Campo etiqueta="Grado" identificador="grado">
-          {grados.length > 0 ? (
-            <select
-              id="grado"
-              value={gradoId}
-              onChange={(e) => {
-                setGradoId(e.target.value);
-                const grado = grados.find((g) => String(g.id) === e.target.value);
-                if (grado) {
-                  setAnioId(String(grado.anio_lectivo_id));
-                  setTarifas((previas) => previas);
-                }
-              }}
-            >
-              <option value="">Seleccione</option>
-              {grados.map((g) => (
-                <option key={g.id} value={String(g.id)}>
-                  {g.nombre}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <input
-              id="grado"
-              inputMode="numeric"
-              value={gradoId}
-              onChange={(e) => setGradoId(e.target.value)}
-            />
-          )}
+          <select id="grado" value={gradoId} onChange={(e) => setGradoId(e.target.value)}>
+            <option value="">
+              {anioId === '' ? 'Primero elija el año' : 'Seleccione el grado'}
+            </option>
+            {gradosDelAnio.map((g) => (
+              <option key={g.id} value={String(g.id)}>
+                {g.nombre}
+              </option>
+            ))}
+          </select>
         </Campo>
 
-        <Campo etiqueta="Tarifa" identificador="tarifa">
-          {tarifas.length > 0 ? (
-            <select id="tarifa" value={tarifaId} onChange={(e) => setTarifaId(e.target.value)}>
-              <option value="">Seleccione</option>
-              {tarifas.map((t) => (
-                <option key={t.id} value={String(t.id)}>
-                  {t.concepto} — {t.monto} {t.moneda ?? ''}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <input
-              id="tarifa"
-              inputMode="numeric"
-              value={tarifaId}
-              onChange={(e) => setTarifaId(e.target.value)}
-            />
-          )}
+        <Campo etiqueta="Tarifa" identificador="tarifa" ayuda="El monto de la tarifa es el de CADA cuota.">
+          <select id="tarifa" value={tarifaId} onChange={(e) => setTarifaId(e.target.value)}>
+            <option value="">
+              {anioId === '' ? 'Primero elija el año' : 'Seleccione la tarifa'}
+            </option>
+            {tarifasDelAnio.map((t) => (
+              <option key={t.id} value={String(t.id)}>
+                {t.concepto} — {conMoneda(t.monto, t.moneda)}
+              </option>
+            ))}
+          </select>
         </Campo>
 
         <Campo

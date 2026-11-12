@@ -230,7 +230,7 @@ export function Boton({
   children,
   ...resto
 }: {
-  tipo?: 'primario' | 'secundario' | 'peligro' | 'fantasma' | 'exito';
+  tipo?: 'primario' | 'secundario' | 'peligro' | 'fantasma' | 'exito' | 'dorado';
   cargando?: boolean;
   grande?: boolean;
   bloque?: boolean;
@@ -341,7 +341,7 @@ export function Etiqueta({
   icono,
   children,
 }: {
-  tipo?: 'neutro' | 'exito' | 'peligro' | 'aviso' | 'info' | 'destacado';
+  tipo?: 'neutro' | 'exito' | 'peligro' | 'aviso' | 'info' | 'destacado' | 'dorado';
   icono?: string;
   children: ReactNode;
 }) {

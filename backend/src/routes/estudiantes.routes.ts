@@ -83,8 +83,31 @@ router.get(
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
       const activo = _req.query.activo === 'true' ? true : _req.query.activo === 'false' ? false : undefined;
+      // Busqueda parcial por nombre, apellido o documento, insensible a acentos
+      // en los dos lados: la pantalla de matricula ofrece personas, no ids.
+      const q = typeof _req.query.q === 'string' ? _req.query.q.trim().slice(0, 80) : '';
+      const busqueda = q.replace(/[%_\\]/g, '');
+      const patron = busqueda.length >= 2 ? `%${busqueda}%` : null;
       const limite = Math.min(parseInt(_req.query.limite as string, 10) || 50, 100);
       const compensar = parseInt(_req.query.compensar as string, 10) || 0;
+
+      const condiciones: string[] = [];
+      const params: unknown[] = [];
+      if (activo !== undefined) {
+        condiciones.push(`activo = $${params.length + 1}`);
+        params.push(activo);
+      }
+      if (patron) {
+        condiciones.push(`(
+          translate(lower(nombres || ' ' || apellidos), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') ILIKE translate(lower($${params.length + 1}), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun')
+          OR translate(lower(nombres), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') ILIKE translate(lower($${params.length + 1}), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun')
+          OR translate(lower(apellidos), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') ILIKE translate(lower($${params.length + 1}), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun')
+          OR translate(lower(documento_identidad), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') ILIKE translate(lower($${params.length + 1}), 'áéíóúüÑ', 'aeiouunaeiouun')
+        )`);
+        params.push(patron);
+      }
+      const where = condiciones.length > 0 ? `WHERE ${condiciones.join(' AND ')}` : '';
+      params.push(limite, compensar);
 
       const result = await getPool().query<{
         id: number;
@@ -94,7 +117,14 @@ router.get(
         email: string | null;
         telefono: string | null;
         activo: boolean;
-      }>('SELECT id, nombres, apellidos, documento_identidad, email, telefono, activo FROM estudiantes ORDER BY apellidos, nombres LIMIT $1 OFFSET $2', [limite, compensar]);
+      }>(
+        `SELECT id, nombres, apellidos, documento_identidad, email, telefono, activo
+           FROM estudiantes
+           ${where}
+          ORDER BY apellidos, nombres
+          LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params
+      );
 
       const estudiantes = result.rows.map((row) => ({
         id: row.id,
@@ -107,6 +137,114 @@ router.get(
       }));
 
       res.status(200).json({ estudiantes });
+    } catch (error) {
+      next(toHttpError(error));
+    }
+  }
+);
+
+// GET /api/estudiantes/anios-lectivos — catalogo para el alta de matriculas
+// (la pantalla NO puede pedir el id a mano: nadie se sabe los identificadores).
+router.get(
+  '/anios-lectivos',
+  requireAuth,
+  requirePermission(AUTH_PERMISSIONS.MATRICULAS_READ),
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await getPool().query<{
+        id: number;
+        anio: number;
+        fecha_inicio: string;
+        fecha_fin: string;
+        activo: boolean;
+      }>(
+        `SELECT id, anio, fecha_inicio::text AS fecha_inicio, fecha_fin::text AS fecha_fin, activo
+           FROM anio_lectivo
+          ORDER BY anio DESC
+          LIMIT 50`
+      );
+      res.status(200).json({ anios: result.rows });
+    } catch (error) {
+      next(toHttpError(error));
+    }
+  }
+);
+
+// GET /api/estudiantes/grados?anio_lectivo_id= — grados del catalogo
+router.get(
+  '/grados',
+  requireAuth,
+  requirePermission(AUTH_PERMISSIONS.MATRICULAS_READ),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const anio = req.query.anio_lectivo_id;
+      let anioId: number | null = null;
+      if (anio !== undefined) {
+        anioId = typeof anio === 'string' ? parsePositiveId(anio) : null;
+        if (anioId === null) {
+          res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'anio_lectivo_id invalido' } });
+          return;
+        }
+      }
+      const params: unknown[] = [];
+      let where = '';
+      if (anioId !== null) {
+        where = 'WHERE anio_lectivo_id = $1';
+        params.push(anioId);
+      }
+      const result = await getPool().query<{ id: number; nombre: string; nivel: string | null; anio_lectivo_id: number }>(
+        `SELECT id, nombre, nivel, anio_lectivo_id
+           FROM grados
+           ${where}
+          ORDER BY nombre
+          LIMIT 200`,
+        params
+      );
+      res.status(200).json({ grados: result.rows });
+    } catch (error) {
+      next(toHttpError(error));
+    }
+  }
+);
+
+// GET /api/estudiantes/tarifas?anio_lectivo_id= — tarifas vigentes.
+// El monto viaja como texto exacto (NUMERIC de PostgreSQL), nunca como numero.
+router.get(
+  '/tarifas',
+  requireAuth,
+  requirePermission(AUTH_PERMISSIONS.MATRICULAS_READ),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const anio = req.query.anio_lectivo_id;
+      let anioId: number | null = null;
+      if (anio !== undefined) {
+        anioId = typeof anio === 'string' ? parsePositiveId(anio) : null;
+        if (anioId === null) {
+          res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'anio_lectivo_id invalido' } });
+          return;
+        }
+      }
+      const params: unknown[] = [];
+      let where = '';
+      if (anioId !== null) {
+        where = 'WHERE anio_lectivo_id = $1';
+        params.push(anioId);
+      }
+      const result = await getPool().query<{
+        id: number;
+        concepto: string;
+        monto: string;
+        moneda: string | null;
+        anio_lectivo_id: number;
+      }>(
+        `SELECT id, concepto, monto::text AS monto, moneda, anio_lectivo_id
+           FROM tarifas
+           ${where}
+          ORDER BY concepto
+          LIMIT 200`,
+        params
+      );
+      res.status(200).json({ tarifas: result.rows });
     } catch (error) {
       next(toHttpError(error));
     }

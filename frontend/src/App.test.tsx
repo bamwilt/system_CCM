@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactElement } from 'react';
 import { SesionProvider } from './context/SesionContexto';
+import { AparienciaProvider } from './context/AparienciaContexto';
 import App from './App';
 
 /**
@@ -43,7 +44,11 @@ const http = axiosMock.__instancia as any;
 function renderConRutas(rutaInicial: string, ui: ReactElement) {
   return render(
     <MemoryRouter initialEntries={[rutaInicial]}>
-      <SesionProvider>{ui}</SesionProvider>
+      {/* La aplicacion real monta los dos proveedores (ver main.tsx): las
+          pruebas los montan igual para no probar un arbol distinto. */}
+      <AparienciaProvider>
+        <SesionProvider>{ui}</SesionProvider>
+      </AparienciaProvider>
     </MemoryRouter>
   );
 }
@@ -77,6 +82,77 @@ function mockearHttp(respuestaReporte: unknown) {
   window.sessionStorage.clear();
 }
 
+/**
+ * Mock del flujo de cobro: busqueda de la persona, plan de pagos y ultimos
+ * cobros. Refleja lo que devuelve el backend real (`/pagos/buscar-deudor`,
+ * `/matriculas/:id/plan-pago`).
+ */
+function mockearCobro(
+  deudor: {
+    matricula_id: number;
+    estudiante_id: number;
+    nombre: string;
+    documento_identidad: string;
+    grado: string;
+    anio_lectivo: string;
+    saldo_total: string;
+    cuotas_pendientes: number;
+    proximo_vencimiento: string | null;
+    moneda: string | null;
+  },
+  cuotas: Array<{ id: number; numero_cuota: number; fecha_vencimiento: string; saldo_pendiente: string; monto_original: string; estado: string }>
+) {
+  http.get.mockReset();
+  http.get.mockImplementation((url: unknown) => {
+    const ruta = String(url);
+    if (ruta.includes('/auth/me')) {
+      return Promise.reject({ response: { status: 401, data: {} } });
+    }
+    if (ruta.includes('/pagos/buscar-deudor')) {
+      return Promise.resolve({ data: { filas: [deudor], grados: ['Tercero'] } });
+    }
+    if (ruta.includes('/plan-pago')) {
+      return Promise.resolve({ data: { plan_pago: { plan_pago_id: 1 }, mensualidades: cuotas } });
+    }
+    return Promise.resolve({ data: { filas: [], total: 0 } });
+  });
+  window.sessionStorage.clear();
+}
+
+const DEUDOR_DEMO = {
+  matricula_id: 10,
+  estudiante_id: 3,
+  nombre: 'Ana Demo',
+  documento_identidad: 'D-123',
+  grado: 'Tercero',
+  anio_lectivo: '2026',
+  saldo_total: '1500.00',
+  cuotas_pendientes: 1,
+  proximo_vencimiento: '2026-03-10',
+  moneda: 'NIO',
+};
+
+const CUOTAS_DEMO = [
+  { id: 91, numero_cuota: 1, fecha_vencimiento: '2026-03-10', saldo_pendiente: '1500.00', monto_original: '1500.00', estado: 'PENDIENTE' },
+  { id: 92, numero_cuota: 2, fecha_vencimiento: '2026-04-10', saldo_pendiente: '1500.00', monto_original: '1500.00', estado: 'PENDIENTE' },
+];
+
+/** Inicia sesion por la via real: formulario de login. */
+async function entrarComo(email: string) {
+  fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /email/) || coincide(el?.textContent || '', /correo/)), { target: { value: email } });
+  fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
+  fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
+}
+
+/** Filtra la tabla y elige a la persona, como haria el personal de ventanilla. */
+async function elegirDeudor(nombre: string) {
+  const caja = await screen.findByLabelText((_t, el) => coincide(el?.id || '', /filtro-texto/));
+  fireEvent.change(caja, { target: { value: nombre } });
+  // La tabla se filtra mientras se escribe; se espera la fila y se pulsa Elegir.
+  const opcion = await screen.findByRole('button', { name: (n) => coincide(n, /elegir/i) });
+  fireEvent.click(opcion);
+}
+
 beforeEach(() => {
   mockearHttp({});
 });
@@ -93,7 +169,7 @@ describe('navegacion', () => {
 
   it('la navegacion principal solo muestra los modulos con permiso', async () => {
     http.post.mockResolvedValueOnce({
-      data: { csrfToken: 'csrf-1', userId: 1, email: 'admin@x.com', nombre: 'Admin', grants: ['estudiantes:read'] },
+      data: { csrfToken: 'csrf-1', user: { id: 1, email: 'admin@x.com', nombre: 'Admin' }, grants: ['estudiantes:read'] },
     });
     renderConRutas('/', <App />);
 
@@ -130,36 +206,57 @@ describe('formularios', () => {
 
   it('no envia el cobro si el monto no es un importe valido', async () => {
     http.post.mockResolvedValueOnce({
-      data: { csrfToken: 'csrf-2', userId: 1, email: 'caj@x.com', nombre: 'Caj', grants: ['pagos:manage'] },
+      data: { csrfToken: 'csrf-2', user: { id: 1, email: 'caj@x.com', nombre: 'Caj' }, grants: ['pagos:manage'] },
     });
+    mockearCobro(DEUDOR_DEMO, CUOTAS_DEMO);
     renderConRutas('/cobro', <App />);
 
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /email/) || coincide(el?.textContent || '', /correo/)), { target: { value: 'caj@x.com' } });
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
-    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
+    await entrarComo('caj@x.com');
 
-    const confirmar = await screen.findByRole('button', { name: (n) => coincide(n, /confirmar cobro/) });
-    expect((confirmar as HTMLButtonElement).disabled).toBe(true);
+    // Sin persona elegida no se puede cobrar: el boton aparece deshabilitado.
+    const confirmar = await screen.findByRole('button', { name: (n) => coincide(n, /confirmar cobro/) }) as HTMLButtonElement;
+    expect(confirmar.disabled).toBe(true);
 
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /matricula/) || coincide(el?.textContent || '', /matricula/)), { target: { value: '10' } });
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /monto/) || coincide(el?.textContent || '', /monto/)), { target: { value: 'abc' } });
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /fecha/) || coincide(el?.textContent || '', /fecha efectiva/)), { target: { value: '2026-03-10' } });
-    expect((confirmar as HTMLButtonElement).disabled).toBe(true);
+    // Se busca a la persona por nombre (no por numero de matricula) y se elige.
+    await elegirDeudor('Ana Demo');
+
+    // Monto con texto: mensaje en linea y el boton sigue deshabilitado.
+    fireEvent.change(await screen.findByLabelText((_t, el) => coincide(el?.id || '', /monto/)), {
+      target: { value: 'abc' },
+    });
+    expect(await screen.findByText(/formato 1500\.00/i)).toBeTruthy();
+    expect((screen.getByRole('button', { name: (n) => coincide(n, /confirmar cobro/) }) as HTMLButtonElement).disabled).toBe(true);
+
+    // Monto que supera la deuda: tampoco se habilita.
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /monto/)), {
+      target: { value: '9999.99' },
+    });
+    expect(await screen.findByText(/supera la deuda/i)).toBeTruthy();
+    expect((screen.getByRole('button', { name: (n) => coincide(n, /confirmar cobro/) }) as HTMLButtonElement).disabled).toBe(true);
+
+    // Con un importe valido se habilita.
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /monto/)), {
+      target: { value: '1500.00' },
+    });
+    expect((screen.getByRole('button', { name: (n) => coincide(n, /confirmar cobro/) }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('pide confirmacion explicita antes de afectar saldos', async () => {
     http.post.mockResolvedValueOnce({
-      data: { csrfToken: 'csrf-3', userId: 1, email: 'caj@x.com', nombre: 'Caj', grants: ['pagos:manage'] },
+      data: { csrfToken: 'csrf-3', user: { id: 1, email: 'caj@x.com', nombre: 'Caj' }, grants: ['pagos:manage'] },
     });
+    mockearCobro(DEUDOR_DEMO, CUOTAS_DEMO);
     renderConRutas('/cobro', <App />);
 
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /email/) || coincide(el?.textContent || '', /correo/)), { target: { value: 'caj@x.com' } });
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
-    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
+    await entrarComo('caj@x.com');
+    await elegirDeudor('Ana Demo');
 
-    fireEvent.change(await screen.findByLabelText((_t, el) => coincide(el?.id || '', /matricula/) || coincide(el?.textContent || '', /matricula/)), { target: { value: '10' } });
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /monto/) || coincide(el?.textContent || '', /monto/)), { target: { value: '1500.00' } });
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /fecha/) || coincide(el?.textContent || '', /fecha efectiva/)), { target: { value: '2026-03-10' } });
+    fireEvent.change(await screen.findByLabelText((_t, el) => coincide(el?.id || '', /monto/)), {
+      target: { value: '1500.00' },
+    });
+    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /fecha/)), {
+      target: { value: '2026-03-10' },
+    });
 
     fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /confirmar cobro/) }));
 
@@ -167,6 +264,8 @@ describe('formularios', () => {
     const dialogo = await screen.findByRole('dialog');
     expect(dialogo).toBeTruthy();
     expect(screen.getByText(/afecta los saldos/i)).toBeTruthy();
+    // El dialogo identifica a la persona: nunca un numero suelto.
+    expect(dialogo.textContent).toContain('Ana Demo');
     expect(http.post).not.toHaveBeenCalledWith('/pagos', expect.anything(), expect.anything());
 
     // Cancelar no envia.
@@ -197,7 +296,7 @@ describe('mensajes', () => {
 
   it('la recaudacion se muestra con importes como texto exacto, sin recalcular', async () => {
     http.post.mockResolvedValueOnce({
-      data: { csrfToken: 'csrf-4', userId: 1, email: 'dir@x.com', nombre: 'Dir', grants: ['reportes:read'] },
+      data: { csrfToken: 'csrf-4', user: { id: 1, email: 'dir@x.com', nombre: 'Dir' }, grants: ['reportes:read'] },
     });
     mockearHttp({
       filas: [{ dia: '2026-03-05', operaciones: 2, total: '1234.50', anuladas: 1, total_anulado: '100.00' }],
@@ -209,16 +308,20 @@ describe('mensajes', () => {
     fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
     fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
 
-    // El importe aparece EXACTO, no redondeado ni reformateado por la interfaz.
-    expect(await screen.findByText(/1234\.50/)).toBeTruthy();
-    // Y el numero de operaciones del dia tambien se muestra tal cual.
-    expect(screen.getByText('2')).toBeTruthy();
-    expect(screen.getByText('1')).toBeTruthy();
+    // El importe aparece EXACTO (con separador de miles de presentacion),
+    // no redondeado ni reformateado por la interfaz.
+    expect(await screen.findByText(/1,234\.50/)).toBeTruthy();
+    // Y el numero de operaciones del dia tambien se muestra tal cual. La misma
+    // cifra aparece mas de una vez (portada e indicadores), por eso se busca
+    // en todos los nodos: lo que se comprueba es que NO se recalcula ni se
+    // reformatea (p. ej. "2 operaciones" no vale como texto del numero).
+    expect(screen.getAllByText('2').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('1').length).toBeGreaterThan(0);
   });
 
   it('un reporte sin filas muestra un estado vacio explicito', async () => {
     http.post.mockResolvedValueOnce({
-      data: { csrfToken: 'csrf-5', userId: 1, email: 'dir@x.com', nombre: 'Dir', grants: ['reportes:read'] },
+      data: { csrfToken: 'csrf-5', user: { id: 1, email: 'dir@x.com', nombre: 'Dir' }, grants: ['reportes:read'] },
     });
     mockearHttp({ filas: [], total: 0 });
     renderConRutas('/reportes', <App />);
@@ -238,7 +341,7 @@ describe('mensajes', () => {
 describe('permisos', () => {
   it('sin pagos:manage la pantalla de cobro no muestra el formulario', async () => {
     http.post.mockResolvedValueOnce({
-      data: { csrfToken: 'csrf-6', userId: 1, email: 'lec@x.com', nombre: 'Lec', grants: ['estudiantes:read'] },
+      data: { csrfToken: 'csrf-6', user: { id: 1, email: 'lec@x.com', nombre: 'Lec' }, grants: ['estudiantes:read'] },
     });
     renderConRutas('/cobro', <App />);
 
@@ -252,7 +355,7 @@ describe('permisos', () => {
 
   it('sin reportes:read el panel lo indica y no intenta cargar el reporte', async () => {
     http.post.mockResolvedValueOnce({
-      data: { csrfToken: 'csrf-7', userId: 1, email: 'caj@x.com', nombre: 'Caj', grants: ['pagos:manage'] },
+      data: { csrfToken: 'csrf-7', user: { id: 1, email: 'caj@x.com', nombre: 'Caj' }, grants: ['pagos:manage'] },
     });
     renderConRutas('/', <App />);
 
@@ -268,7 +371,7 @@ describe('permisos', () => {
 
   it('todas las tablas exponen encabezados con scope="col"', async () => {
     http.post.mockResolvedValueOnce({
-      data: { csrfToken: 'csrf-8', userId: 1, email: 'dir@x.com', nombre: 'Dir', grants: ['reportes:read'] },
+      data: { csrfToken: 'csrf-8', user: { id: 1, email: 'dir@x.com', nombre: 'Dir' }, grants: ['reportes:read'] },
     });
     mockearHttp({
       filas: [{ dia: '2026-03-05', operaciones: 1, total: '10.00', anuladas: 0, total_anulado: '0.00' }],
@@ -327,7 +430,7 @@ describe('sesion persistente tras recarga', () => {
     http.get.mockImplementation((url: unknown) => {
       if (String(url).includes('/auth/me')) {
         return Promise.resolve({
-          data: { userId: 1, email: 'a@x.com', nombre: 'A', grants: [], csrfToken: 'csrf-restaurada' },
+          data: { user: { id: 1, email: 'a@x.com', nombre: 'A' }, grants: [], csrfToken: 'csrf-restaurada' },
         });
       }
       return Promise.resolve({ data: { filas: [], total: 0 } });
@@ -338,26 +441,85 @@ describe('sesion persistente tras recarga', () => {
   });
 });
 
+
+/**
+ * Mock de catalogos y estudiantes para el alta de matricula. La pantalla ya no
+ acepta identificadores escritos a mano: se elige de listas reales.
+ */
+const CATALOGOS = {
+  anios: [{ id: 7, anio: 2026, fecha_inicio: '2026-02-10', fecha_fin: '2026-11-10', activo: true }],
+  grados: [{ id: 3, nombre: 'Tercero', nivel: 'Primaria', anio_lectivo_id: 7 }],
+  tarifas: [{ id: 9, concepto: 'Matricula 2026', monto: '1500.00', moneda: 'NIO', anio_lectivo_id: 7 }],
+  estudiantes: [
+    { id: 2, nombres: 'Ana', apellidos: 'Demo', documento_identidad: 'D-2', activo: true },
+    { id: 3, nombres: 'Luis', apellidos: 'Demo', documento_identidad: 'D-3', activo: true },
+  ],
+};
+
+function mockearCatalogos() {
+  http.get.mockReset();
+  http.get.mockImplementation((url: unknown) => {
+    const ruta = String(url);
+    if (ruta.includes('/auth/me')) {
+      return Promise.reject({ response: { status: 401, data: {} } });
+    }
+    if (ruta.includes('/estudiantes') && !ruta.includes('anios-lectivos') && !ruta.includes('grados') && !ruta.includes('tarifas')) {
+      return Promise.resolve({ data: { estudiantes: CATALOGOS.estudiantes } });
+    }
+    if (ruta.includes('anios-lectivos')) {
+      return Promise.resolve({ data: { anios: CATALOGOS.anios } });
+    }
+    if (ruta.includes('grados')) {
+      return Promise.resolve({ data: { grados: CATALOGOS.grados } });
+    }
+    if (ruta.includes('tarifas')) {
+      return Promise.resolve({ data: { tarifas: CATALOGOS.tarifas } });
+    }
+    return Promise.resolve({ data: { filas: [], total: 0 } });
+  });
+  window.sessionStorage.clear();
+}
+
+/** Elige al estudiante por la lista y completa año, grado y tarifa. */
+async function completarDatosMatricula() {
+  fireEvent.change(await screen.findByLabelText((_t, el) => coincide(el?.id || '', /estudiante/)), {
+    target: { value: 'Ana' },
+  });
+  const opcion = await screen.findByRole('button', { name: (n) => coincide(n, /ana demo/i) });
+  fireEvent.click(opcion);
+  fireEvent.change(await screen.findByLabelText((_t, el) => coincide(el?.id || '', /anio/)), {
+    target: { value: '7' },
+  });
+  fireEvent.change(await screen.findByLabelText((_t, el) => coincide(el?.id || '', /grado/)), {
+    target: { value: '3' },
+  });
+  fireEvent.change(await screen.findByLabelText((_t, el) => coincide(el?.id || '', /tarifa/)), {
+    target: { value: '9' },
+  });
+}
+
+/** Inicia sesion en el alta de matricula. */
+async function entrarAMatriculas(email: string) {
+  fireEvent.change(await screen.findByLabelText(/correo/i), { target: { value: email } });
+  fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
+  fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
+}
+
 describe('nueva matricula', () => {
   it('el numero de cuotas lo decide la cantidad de fechas: no hay valor por defecto', async () => {
     http.post.mockResolvedValueOnce({
-      data: { csrfToken: 'c', userId: 1, email: 'a@x.com', nombre: 'A', grants: ['matriculas:manage'] },
+      data: { csrfToken: 'c', user: { id: 1, email: 'a@x.com', nombre: 'A' }, grants: ['matriculas:manage'] },
     });
-    mockearHttp({ anios: [], grados: [], tarifas: [] });
+    mockearCatalogos();
     renderConRutas('/matriculas/nueva', <App />);
 
-    fireEvent.change(await screen.findByLabelText(/correo/i), { target: { value: 'a@x.com' } });
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
-    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
+    await entrarAMatriculas('a@x.com');
 
     const crear = await screen.findByRole('button', { name: (n) => coincide(n, /crear matricula/) });
     // Sin fechas no se puede crear.
     expect((crear as HTMLButtonElement).disabled).toBe(true);
 
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /estudiante/) || coincide(el?.textContent || '', /estudiante/)), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /anio/) || coincide(el?.textContent || '', /anio lectivo/)), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /grado/) || coincide(el?.textContent || '', /grado/)), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /tarifa/) || coincide(el?.textContent || '', /tarifa/)), { target: { value: '1' } });
+    await completarDatosMatricula();
     expect((crear as HTMLButtonElement).disabled).toBe(true);
 
     // Dos fechas = dos cuotas. El boton se habilita.
@@ -369,21 +531,15 @@ describe('nueva matricula', () => {
 
   it('rechaza fechas irreales, desordenadas o repetidas en el navegador', async () => {
     http.post.mockResolvedValueOnce({
-      data: { csrfToken: 'c', userId: 1, email: 'a@x.com', nombre: 'A', grants: ['matriculas:manage'] },
+      data: { csrfToken: 'c', user: { id: 1, email: 'a@x.com', nombre: 'A' }, grants: ['matriculas:manage'] },
     });
-    mockearHttp({ anios: [], grados: [], tarifas: [] });
+    mockearCatalogos();
     renderConRutas('/matriculas/nueva', <App />);
 
-    fireEvent.change(await screen.findByLabelText(/correo/i), { target: { value: 'a@x.com' } });
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
-    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
+    await entrarAMatriculas('a@x.com');
+    await completarDatosMatricula();
 
-    fireEvent.change(await screen.findByLabelText(/estudiante/i), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /anio/) || coincide(el?.textContent || '', /anio lectivo/)), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /grado/) || coincide(el?.textContent || '', /grado/)), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /tarifa/) || coincide(el?.textContent || '', /tarifa/)), { target: { value: '1' } });
-    const crear = screen.getByRole('button', { name: (n) => coincide(n, /crear matricula/) });
-
+    const crear = await screen.findByRole('button', { name: (n) => coincide(n, /crear matricula/) });
     for (const valor of ['2026-02-31', '2026-04-10, 2026-03-10', '2026-03-10, 2026-03-10', 'no-es-fecha']) {
       fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /fechas/) || coincide(el?.textContent || '', /fechas de vencimiento/)), { target: { value: valor } });
       expect((crear as HTMLButtonElement).disabled, `debia rechazar ${valor}`).toBe(true);
@@ -392,19 +548,14 @@ describe('nueva matricula', () => {
 
   it('un descuento sin autorizador impide crear la matricula', async () => {
     http.post.mockResolvedValueOnce({
-      data: { csrfToken: 'c', userId: 1, email: 'a@x.com', nombre: 'A', grants: ['matriculas:manage'] },
+      data: { csrfToken: 'c', user: { id: 1, email: 'a@x.com', nombre: 'A' }, grants: ['matriculas:manage'] },
     });
-    mockearHttp({ anios: [], grados: [], tarifas: [] });
+    mockearCatalogos();
     renderConRutas('/matriculas/nueva', <App />);
 
-    fireEvent.change(await screen.findByLabelText(/correo/i), { target: { value: 'a@x.com' } });
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /password/) || coincide(el?.textContent || '', /contrasena/)), { target: { value: 'Password12345!' } });
-    fireEvent.click(screen.getByRole('button', { name: (n) => coincide(n, /^ingresar$/) }));
+    await entrarAMatriculas('a@x.com');
+    await completarDatosMatricula();
 
-    fireEvent.change(await screen.findByLabelText(/estudiante/i), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /anio/) || coincide(el?.textContent || '', /anio lectivo/)), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /grado/) || coincide(el?.textContent || '', /grado/)), { target: { value: '1' } });
-    fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /tarifa/) || coincide(el?.textContent || '', /tarifa/)), { target: { value: '1' } });
     fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /fechas/) || coincide(el?.textContent || '', /fechas de vencimiento/)), {
       target: { value: '2026-03-10' },
     });
@@ -426,7 +577,7 @@ describe('nueva matricula', () => {
 describe('tutores', () => {
   it('sin tutores:manage la pantalla lo indica y no muestra la tabla', async () => {
     http.post.mockResolvedValueOnce({
-      data: { csrfToken: 'c', userId: 1, email: 'l@x.com', nombre: 'L', grants: ['estudiantes:read'] },
+      data: { csrfToken: 'c', user: { id: 1, email: 'l@x.com', nombre: 'L' }, grants: ['estudiantes:read'] },
     });
     mockearHttp({ tutores: [] });
     renderConRutas('/tutores', <App />);
@@ -440,7 +591,7 @@ describe('tutores', () => {
 
   it('con tutores:manage lista los tutores con encabezados accesibles', async () => {
     http.post.mockResolvedValueOnce({
-      data: { csrfToken: 'c', userId: 1, email: 't@x.com', nombre: 'T', grants: ['tutores:manage'] },
+      data: { csrfToken: 'c', user: { id: 1, email: 't@x.com', nombre: 'T' }, grants: ['tutores:manage'] },
     });
     mockearHttp({
       tutores: [

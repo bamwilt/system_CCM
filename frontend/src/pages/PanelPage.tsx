@@ -68,7 +68,7 @@ export default function PanelPage() {
                 celda: (f) => `${f.anuladas} (${f.total_anulado})`,
               },
             ]}
-            vacio="Sin movimientos registrados."
+            vacio={{ titulo: 'Sin movimientos registrados.' }}
           />
         </section>
       ) : (

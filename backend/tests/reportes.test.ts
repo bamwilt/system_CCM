@@ -56,8 +56,14 @@ const MIG_FILES = [
 
 const MARCA = 'F8';
 const MARCA_LIKE = `${MARCA}-%`;
-/** Año propio de la suite, amplio para no chocar con fixtures de otras. */
-const ANIO = 2186;
+/**
+ * Año propio de la suite. Se evita 2187 a proposito: es el ano de
+ * `motor-aplicacion.test.ts`, que lo crea con un rango amplio y artificial
+ * (2026-2099). Si esta suite lo usara, sus fechas (2187-MM-10) caerian FUERA de
+ * ese rango y el alta fallaria con "fuera del rango del ano lectivo".
+ * Medido: asi fallaba de forma intermitente.
+ */
+const ANIO = 2188;
 /** Rango que siempre cubre el sello de registro real (`pagos.fecha_pago`). */
 const RANGO_AMPLIO = 'desde=2020-01-01&hasta=2035-12-31';
 const GRANTS: string[] = [
@@ -280,9 +286,16 @@ async function montarMatricula(
   const estudianteId = estudiante.body.estudiante.id;
 
   await pool.query(
+    // ON CONFLICT DO NOTHING, y no DO UPDATE: el ano lectivo es un registro
+    // COMPARTIDO entre suites. Esta suite usa anos 2186..2225, y el 2187 es de
+    // `motor-aplicacion.test.ts`, que espera un rango amplio (2026-2099). Si
+    // aqui se reescribiera el rango con el ano propio, la suite de motor
+    // fallaria con "Fecha de vencimiento fuera del rango del ano lectivo"
+    // (medido: asi ocurria en la segunda corrida de la suite completa).
+    // Las fechas de esta suite (MM-10 del ano) caen dentro de ese rango amplio,
+    // asi que DO NOTHING es correcto y no rompe a nadie.
     `INSERT INTO anio_lectivo (anio, fecha_inicio, fecha_fin, activo) VALUES ($1, $2, $3, TRUE)
-     ON CONFLICT (anio) DO UPDATE SET fecha_inicio = EXCLUDED.fecha_inicio,
-       fecha_fin = EXCLUDED.fecha_fin, activo = TRUE`,
+     ON CONFLICT (anio) DO NOTHING`,
     [anio, `${anio}-02-10`, `${anio}-11-10`]
   );
   const grado = await uno<{ id: number }>(

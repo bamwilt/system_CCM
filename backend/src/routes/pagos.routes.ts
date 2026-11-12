@@ -18,6 +18,7 @@ import {
 } from '../services/pagos.service';
 import { hashToken } from '../utils/authCrypto';
 import { redactError } from '../utils/redact';
+import { BusquedaDeudoresRepository } from '../repositories/busqueda-deudores.repository';
 import { generarComprobantePdf } from '../servicios/comprobante-pdf';
 
 /**
@@ -250,6 +251,82 @@ router.get(
       }
       const resultado = await pagosService.buscarPagos(filtros);
       res.status(200).json(resultado);
+    } catch (error) {
+      next(toHttpError(error));
+    }
+  }
+);
+
+// GET /api/pagos/buscar-deudor — tabla de "a quien le cobro hoy"
+//
+// Permiso: PAGOS_MANAGE, el de quien registra el cobro. Sin ese permiso la
+// pantalla de cobro ni se muestra, asi que exigirlo aqui es coherente (no se
+// expone informacion a quien no cobra). Devuelve lo MINIMO para cobrar:
+// nombre, grado y deuda almacenada; no hay contactos ni datos personales.
+//
+// Filtros (todos parciales, todos parametrizados):
+//   q       nombre, apellido o documento (sin acentos da igual)
+//   grado   grado o seccion, para quien mira el listado completo
+//   deuda   "pendiente" (solo quienes deben algo) | "todas" (por defecto)
+//   limite  maximo 50
+router.get(
+  '/buscar-deudor',
+  requireAuth,
+  requirePermission(AUTH_PERMISSIONS.PAGOS_MANAGE),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const limpiar = (valor: unknown): string | null => {
+        if (typeof valor !== 'string') {
+          return null;
+        }
+        // Se rechazan comodines de LIKE: se busca por texto, no por patron.
+        const limpio = valor.replace(/[%_\\]/g, '').trim().slice(0, 80);
+        return limpio.length >= 2 ? limpio : null;
+      };
+      const textoCrudo = req.query.q;
+      const gradoCrudo = req.query.grado;
+      // Si el filtro VIENE pero es demasiado corto es un error del cliente: no
+      // se responde con el listado completo, que seria peor (parece que no hay
+      // datos cuando en realidad el filtro no sirve).
+      if (textoCrudo !== undefined && limpiar(textoCrudo) === null) {
+        res.setHeader('Cache-Control', 'no-store');
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: 'Escriba al menos dos letras para buscar' },
+        });
+        return;
+      }
+      if (gradoCrudo !== undefined && limpiar(gradoCrudo) === null) {
+        res.setHeader('Cache-Control', 'no-store');
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: 'El grado debe tener al menos dos letras' },
+        });
+        return;
+      }
+      const termino = limpiar(textoCrudo);
+      const grado = limpiar(gradoCrudo);
+      const deudaCruda = req.query.deuda;
+      const deuda = deudaCruda === undefined ? 'todas' : deudaCruda;
+      if (deuda !== 'pendiente' && deuda !== 'todas') {
+        res.setHeader('Cache-Control', 'no-store');
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: 'deuda admite "pendiente" o "todas"' },
+        });
+        return;
+      }
+      const limiteCrudo = req.query.limite;
+      const limite = Math.min(
+        (typeof limiteCrudo === 'string' ? parsePositiveId(limiteCrudo) : null) ?? 20,
+        50
+      );
+      const repo = new BusquedaDeudoresRepository();
+      const { filas, grados } = await repo.buscar({
+        termino,
+        grado,
+        soloConDeuda: deuda === 'pendiente',
+        limite,
+      });
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(200).json({ filas, grados });
     } catch (error) {
       next(toHttpError(error));
     }

@@ -91,21 +91,32 @@ export interface SesionInfo {
   grants: string[];
 }
 
+/**
+ * Respuesta real del backend en `/auth/login` y `/auth/me`:
+ *   { user: { id, email, nombre, apellido }, grants, csrfToken }
+ * Acepta tambien la forma plana por compatibilidad con pruebas antiguas.
+ */
+function sesionDe(data: Record<string, unknown>): SesionInfo {
+  const origen = (data.user ?? data) as Record<string, unknown>;
+  const nombre = [String(origen.nombre ?? ''), String(origen.apellido ?? '')].filter(Boolean).join(' ');
+  return {
+    userId: Number(origen.id ?? 0),
+    email: String(origen.email ?? ''),
+    nombre: nombre.trim(),
+    grants: Array.isArray(data.grants) ? (data.grants as string[]) : [],
+  };
+}
+
 export async function iniciarSesion(
   email: string,
   password: string
 ): Promise<SesionInfo> {
-  const { data } = await api.post<{ csrfToken?: string } & Partial<SesionInfo>>(
+  const { data } = await api.post<{ csrfToken?: string } & Record<string, unknown>>(
     '/auth/login',
     { email, password }
   );
-  setCsrfToken(data.csrfToken ?? null);
-  return {
-    userId: Number(data.userId ?? 0),
-    email: String(data.email ?? ''),
-    nombre: String(data.nombre ?? ''),
-    grants: Array.isArray(data.grants) ? (data.grants as string[]) : [],
-  };
+  setCsrfToken(typeof data.csrfToken === 'string' ? data.csrfToken : null);
+  return sesionDe(data);
 }
 
 /**
@@ -115,14 +126,9 @@ export async function iniciarSesion(
  */
 export async function obtenerSesionActiva(): Promise<SesionInfo | null> {
   try {
-    const { data } = await api.get<SesionInfo & { csrfToken?: string }>('/auth/me');
-    setCsrfToken(data.csrfToken ?? null);
-    return {
-      userId: Number(data.userId ?? 0),
-      email: String(data.email ?? ''),
-      nombre: String(data.nombre ?? ''),
-      grants: Array.isArray(data.grants) ? (data.grants as string[]) : [],
-    };
+    const { data } = await api.get<Record<string, unknown>>('/auth/me');
+    setCsrfToken(typeof data.csrfToken === 'string' ? data.csrfToken : null);
+    return sesionDe(data);
   } catch {
     return null;
   }
@@ -143,18 +149,22 @@ export interface Paginado<T> {
 
 export async function listar<T>(
   ruta: string,
-  params: Record<string, unknown> = {}
-): Promise<{ filas: T[]; total: number }> {
-  const { data } = await api.get(ruta, { params });
+  segundo?: Record<string, unknown> | string
+): Promise<{ filas: T[]; total: number } & Record<string, unknown>> {
+  const esClave = typeof segundo === 'string';
+  const { data } = await api.get(ruta, esClave ? undefined : { params: segundo ?? {} });
   // Cada lista del backend devuelve su coleccion con un nombre propio; se toma
   // el primer arreglo encontrado para no acoplar el cliente a ese nombre.
   const filas = Object.values(data as Record<string, unknown>).find(Array.isArray);
   const total = Object.values(data as Record<string, unknown>).find(
     (valor) => typeof valor === 'number'
   );
+  const extra =
+    esClave && segundo ? { [segundo]: (data as Record<string, unknown>)[segundo] } : {};
   return {
     filas: (filas as T[] | undefined) ?? [],
     total: typeof total === 'number' ? total : 0,
+    ...extra,
   };
 }
 

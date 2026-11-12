@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSesion } from '../context/SesionContexto';
-import { Campo, Filtros, Importe, Mensaje, Tabla } from '../components/Comunes';
+import { Boton, Campo, Filtros, Importe, Mensaje, Tabla } from '../components/Comunes';
 import { listar, mensajeDeError } from '../services/api';
 
 /**
@@ -136,9 +136,9 @@ export default function ReportesPage() {
           </>
         )}
 
-        <button type="button" onClick={() => void consultar()}>
+        <Boton tipo="primario" icono="search" onClick={() => void consultar()}>
           Consultar
-        </button>
+        </Boton>
       </Filtros>
 
       {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
@@ -148,7 +148,7 @@ export default function ReportesPage() {
         filas={filas}
         clave={(f) => String(f.id ?? f.dia ?? JSON.stringify(f))}
         columnas={columnasDe(reporte)}
-        vacio="El reporte no devolvio filas."
+        vacio={{ titulo: 'El reporte no devolvio filas.' }}
       />
     </div>
   );
