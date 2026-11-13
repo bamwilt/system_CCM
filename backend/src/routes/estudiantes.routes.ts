@@ -83,8 +83,10 @@ router.get(
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
       const activo = _req.query.activo === 'true' ? true : _req.query.activo === 'false' ? false : undefined;
-      // Busqueda parcial por nombre, apellido o documento, insensible a acentos
-      // en los dos lados: la pantalla de matricula ofrece personas, no ids.
+      const nombre = typeof _req.query.nombre === 'string' ? _req.query.nombre.trim().slice(0, 80) : '';
+      const documento = typeof _req.query.documento === 'string' ? _req.query.documento.trim().slice(0, 80) : '';
+      const grado = typeof _req.query.grado === 'string' ? _req.query.grado.trim().slice(0, 100) : '';
+      const sinMatricula = _req.query.sin_matricula === 'true';
       const q = typeof _req.query.q === 'string' ? _req.query.q.trim().slice(0, 80) : '';
       const busqueda = q.replace(/[%_\\]/g, '');
       const patron = busqueda.length >= 2 ? `%${busqueda}%` : null;
@@ -94,17 +96,39 @@ router.get(
       const condiciones: string[] = [];
       const params: unknown[] = [];
       if (activo !== undefined) {
-        condiciones.push(`activo = $${params.length + 1}`);
+        condiciones.push(`e.activo = $${params.length + 1}`);
         params.push(activo);
+      }
+      if (nombre.trim().length >= 2) {
+        condiciones.push(`(
+          translate(lower(e.nombres), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') ILIKE translate(lower($${params.length + 1}), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun')
+          OR translate(lower(e.apellidos), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') ILIKE translate(lower($${params.length + 1}), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun')
+        )`);
+        params.push(`%${nombre.trim().replace(/[%_\\]/g, '')}%`);
+      }
+      if (documento.trim().length >= 2) {
+        condiciones.push(`translate(lower(e.documento_identidad), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') ILIKE translate(lower($${params.length + 1}), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun')`);
+        params.push(`%${documento.trim().replace(/[%_\\]/g, '')}%`);
       }
       if (patron) {
         condiciones.push(`(
-          translate(lower(nombres || ' ' || apellidos), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') ILIKE translate(lower($${params.length + 1}), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun')
-          OR translate(lower(nombres), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') ILIKE translate(lower($${params.length + 1}), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun')
-          OR translate(lower(apellidos), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') ILIKE translate(lower($${params.length + 1}), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun')
-          OR translate(lower(documento_identidad), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') ILIKE translate(lower($${params.length + 1}), 'áéíóúüÑ', 'aeiouunaeiouun')
+          translate(lower(e.nombres || ' ' || e.apellidos), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') ILIKE translate(lower($${params.length + 1}), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun')
+          OR translate(lower(e.nombres), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') ILIKE translate(lower($${params.length + 1}), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun')
+          OR translate(lower(e.apellidos), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') ILIKE translate(lower($${params.length + 1}), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun')
+          OR translate(lower(e.documento_identidad), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunaeiouun') ILIKE translate(lower($${params.length + 1}), 'áéíóúüÑ', 'aeiouunaeiouun')
         )`);
         params.push(patron);
+      }
+      if (grado !== '') {
+        condiciones.push(`EXISTS (
+          SELECT 1 FROM matriculas m
+          JOIN grados g ON g.id = m.grado_id
+          WHERE m.estudiante_id = e.id AND g.nombre = $${params.length + 1}
+        )`);
+        params.push(grado);
+      }
+      if (sinMatricula) {
+        condiciones.push(`NOT EXISTS (SELECT 1 FROM matriculas m2 WHERE m2.estudiante_id = e.id)`);
       }
       const where = condiciones.length > 0 ? `WHERE ${condiciones.join(' AND ')}` : '';
       params.push(limite, compensar);
@@ -117,11 +141,25 @@ router.get(
         email: string | null;
         telefono: string | null;
         activo: boolean;
+        grado: string | null;
+        ultimo_anio: number | null;
+        tiene_matricula: boolean;
       }>(
-        `SELECT id, nombres, apellidos, documento_identidad, email, telefono, activo
-           FROM estudiantes
+        `SELECT e.id, e.nombres, e.apellidos, e.documento_identidad, e.email, e.telefono, e.activo,
+                ult.grado, ult.ultimo_anio,
+                EXISTS (SELECT 1 FROM matriculas mm WHERE mm.estudiante_id = e.id) AS tiene_matricula
+           FROM estudiantes e
+           LEFT JOIN LATERAL (
+             SELECT g.nombre AS grado, al.anio AS ultimo_anio
+               FROM matriculas m
+               JOIN grados g ON g.id = m.grado_id
+               JOIN anio_lectivo al ON al.id = m.anio_lectivo_id
+              WHERE m.estudiante_id = e.id
+              ORDER BY m.fecha_matricula DESC
+              LIMIT 1
+           ) ult ON true
            ${where}
-          ORDER BY apellidos, nombres
+          ORDER BY e.apellidos, e.nombres
           LIMIT $${params.length - 1} OFFSET $${params.length}`,
         params
       );
@@ -134,6 +172,9 @@ router.get(
         email: row.email,
         telefono: row.telefono,
         activo: row.activo,
+        grado: row.grado,
+        ultimo_anio: row.ultimo_anio,
+        tiene_matricula: row.tiene_matricula,
       }));
 
       res.status(200).json({ estudiantes });

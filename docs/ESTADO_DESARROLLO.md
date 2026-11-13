@@ -282,3 +282,29 @@ Los diez elementos de diseño general que pide el PM están implementados: naveg
 **Completado:** la sesion sobrevive a la recarga (`/auth/me` devuelve los permisos efectivos y el CSRF), hay pantalla de tutores, alta de matricula con plan de pago (el numero de cuotas lo decide la cantidad de fechas cargadas, sin valor por defecto) y hoja de estilos con foco visible y `prefers-reduced-motion`.
 
 **Reservas:** diseño visual sin validar con personal administrativo y sin pantalla de edicion de matricula. Los catalogos del formulario se cargan solo si existen endpoints; si no, la persona introduce los identificadores a mano.
+
+## Estado vigente (2026-11-13) — correcciones de interfaz y de cobro
+
+Ejecutado el 2026-11-13 sobre el entorno local (PostgreSQL 16 en el puerto 5432, backend en el 3000, frontend en el 5173). Sin commit ni push hasta esta entrada.
+
+**Correcciones medidas, no estéticas:**
+
+1. **Pantalla "Estado del sistema":** renderizaba los estilos por defecto del navegador porque usaba dos clases CSS (`estado__resumen`, `estado__datos`) que no existían en ningún archivo del repositorio —verificado por búsqueda en todo el árbol—. Reescrita con los componentes de la biblioteca propia (panel, resumen, etiquetas), fecha en reloj de 24 horas (`hourCycle: h23`, porque `es-NI` sin más devuelve "10:31 p. m."), tiempo activo en horas y minutos, y botón para volver a comprobar (la versión anterior consultaba una sola vez y la cifra quedaba vieja). Verificado en navegador en tema oscuro y claro.
+
+2. **Icono inexistente en la barra lateral:** el glifo `dashboard` no está en el subconjunto autohospedado de Material Symbols (90 glifos, verificado leyendo el `woff2`), así que se renderizaba como el texto "DASHBOAR". Sustituido por `trending_up`, que sí está en el subconjunto.
+
+3. **Alta de matrícula reescrita** con la misma composición que "Registrar cobro": tres filtros arriba (nombre, documento, grado) más un cuarto de "sin matrícula", tabla ordenable por columna y botón **Elegir** que completa los datos; la ficha del elegido tiene **Quitar** para deseleccionar. El formulario siempre está visible y sus campos siempre son editables (antes solo aparecía tras elegir persona).
+
+4. **Naturaleza de la tarifa, la corrección de fondo:** el concepto de cada cuota estaba fijo en `"Mensualidad N"` en `matricula.service.ts`, de modo que una matrícula o un uniforme generaban cuotas llamadas "Mensualidad 1", "Mensualidad 2"... y en la pantalla de cobro se veían revueltos los conceptos. Ahora el concepto sale de la tarifa y se distingue la naturaleza del cobro: **mensualidad** = varias fechas, una cuota por fecha (regla del PM intacta); **matrícula y uniforme** = pago único, **una sola fecha**, rechazado en el origen con 400. La interfaz es la misma; la validación no.
+
+5. **Pantalla de cobro:** formulario pasado a disposición lineal (un campo debajo del otro, como en matrícula) y cada fila de la tabla declara **qué** se cobra (`Mensualidad` / `Uniforme` / `Matricula`), tomado del concepto de la tarifa del plan. Una familia con matrícula en dos años aparece con una fila por año y se distinguen por concepto y grado, no solo por el nombre.
+
+6. **`GET /api/estudiantes` ampliado** con filtros separados (`nombre`, `documento`, `grado`, `sin_matricula`), insensibles a acentos, y con `grado`, `ultimo_anio` y `tiene_matricula` en la respuesta. La búsqueda combinada `q` se mantiene por compatibilidad.
+
+7. **Deuda técnica cerrada:** `npm run lint` funcionaba en frontend y backend (no había fichero de configuración y ESLint 9 exige *flat config*). Añadidos `frontend/eslint.config.js` y `backend/eslint.config.js`.
+
+**Matriz de permisos de prueba (relacionada con DEC-03, sigue PENDIENTE de aprobación institucional):** para poder probar las cuatro pantallas con usuarios reales se asignaron permisos en `auth_role_permissions` a los roles institucionales (ADMIN los diez códigos; COBRADOR cobros, matrículas y reportes; DIRECTOR y CONSULTA solo lectura). **No es una ratificación de DEC-03**: es una matriz de ejercicio local, reversible, asociada a los usuarios de prueba.
+
+**Datos de demostración cargados:** años lectivos 2026 y 2027 (12 grados y 3 tarifas cada uno), 6 tutores, 8 estudiantes, 8 matrículas, 9 planes de pago, 55 cuotas y 3 pagos con aplicación FIFO. Usuarios de prueba con permisos diferenciados.
+
+**Reservas:** las capturas de `docs/capturas/` se retomaron sobre la aplicación real (se añadió `10-estado-sistema.png`) pero siguen sin validación del personal administrativo; la ausencia de tests de backend en esta sesión es de infraestructura (la suite usa una base de test dedicada en el puerto 55433 que no está levantada), no de la lógica.

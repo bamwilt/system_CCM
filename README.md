@@ -36,6 +36,11 @@ sus cuotas, y el panel derecho resume la operacion ANTES de confirmar
 (prevencion de errores). Los importes se muestran con moneda y separador de
 miles (`C$ 4,500.00`), tomados como texto exacto de PostgreSQL.
 
+Los campos van uno debajo del otro (sin columnas que obliguen a saltar la
+vista) y cada fila de la tabla dice **que** se esta cobrando: `Mensualidad`,
+`Uniforme` o `Matricula`. Una familia con matricula en dos anos aparece con una
+fila por ano, y se distinguen por el concepto ademas del grado.
+
 ### Configuracion de apariencia
 
 ![Configuracion](docs/capturas/04-configuracion.png)
@@ -61,6 +66,31 @@ guarda en el navegador y no cambia ninguna cifra ni regla de cobro.
 
 El mismo criterio del cobro: el estudiante se busca por nombre y los año, grado
 y tarifa se eligen de listas reales (nadie se sabe los identificadores internos).
+
+Arriba hay tres filtros que se aplican mientras se escribe —nombre, documento y
+grado— mas un cuarto para ver solo quien aun no tiene matricula. Un clic en
+**Elegir** completa los datos y se puede **Quitar** la seleccion para empezar de
+nuevo.
+
+La pantalla distingue la naturaleza del cobro, porque las validaciones son
+distintas aunque la interfaz sea la misma:
+
+- **Mensualidad**: admite varias fechas de vencimiento; la cantidad de fechas
+  ES el numero de cuotas.
+- **Matricula y Uniforme**: se cobran UNA sola vez, asi que solo admiten una
+  fecha. La cuota se guarda con el concepto de la tarifa (`Uniforme`), no como
+  "Mensualidad 1", que era el error que mezclaba los conceptos en el cobro.
+
+Si el estudiante ya cursa el ano elegido, la tabla no ofrece el boton Elegir
+(no se le puede volver a matricular en el mismo ano); si su matricula es de otro
+ano, si se le puede matricular.
+
+### Estado del sistema
+
+![Estado del sistema](docs/capturas/10-estado-sistema.png)
+
+Comprobacion en vivo del servidor y de su conexion con la base de datos, con
+boton para volver a verificar. Antes volcaba el JSON de la API sin presentar.
 
 ## Requisitos
 

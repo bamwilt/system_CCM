@@ -68,6 +68,58 @@ export function fechaCorta(iso: string): string {
   });
 }
 
+/**
+ * Fecha y hora en reloj de 24 horas: "12 nov 2026, 22:31".
+ *
+ * El ciclo de 24 horas se pide de forma explicita porque es-NI, sin el, escribe
+ * "10:31 p. m.": la caja de un colegio trabaja con reloj de 24 horas y esa
+ * era justo la queja con la fecha de la pantalla de estado.
+ *
+ * Acepta una fecha DATE ("2026-11-12") o un timestamp completo. Si el valor no
+ * es una fecha se devuelve tal cual: nunca se muestra "Invalid Date".
+ */
+export function fechaHora(iso: string): string {
+  if (!iso) {
+    return '—';
+  }
+  const fecha = new Date(iso);
+  if (Number.isNaN(fecha.getTime())) {
+    return iso;
+  }
+  return fecha.toLocaleString('es-NI', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+}
+
+/**
+ * Segundos a texto de personas: "45 s", "12 min", "1 h 15 min".
+ *
+ * El backend devuelve process.uptime() en segundos (con decimales). La version
+ * anterior escribia Math.floor(uptime / 60) + " min", que a los 75 minutos
+ * segua diciendo "75 min" en lugar de "1 h 15 min".
+ */
+export function tiempoActivo(segundos: number): string {
+  if (!Number.isFinite(segundos) || segundos < 0) {
+    return '—';
+  }
+  const total = Math.floor(segundos);
+  if (total < 60) {
+    return `${total} s`;
+  }
+  const minutos = Math.floor(total / 60);
+  if (minutos < 60) {
+    return `${minutos} min`;
+  }
+  const horas = Math.floor(minutos / 60);
+  const resto = minutos % 60;
+  return resto === 0 ? `${horas} h` : `${horas} h ${String(resto).padStart(2, '0')} min`;
+}
+
 /** Iniciales para el avatar de la lista de busqueda. */
 export function iniciales(nombre: string): string {
   return nombre

@@ -297,7 +297,6 @@ a { color: var(--acento); text-decoration: none; }
     radial-gradient(45% 35% at 12% 8%, rgba(217 180 91 / 10%) 0%, transparent 100%),
     radial-gradient(40% 40% at 88% 12%, rgba(86 184 238 / 10%) 0%, transparent 100%),
     radial-gradient(35% 45% at 60% 95%, rgba(180 140 255 / 6%) 0%, transparent 100%);
-  animation: aurora 24s ease-in-out infinite alternate;
 }
 
 @keyframes aurora {
@@ -417,7 +416,6 @@ a { color: var(--acento); text-decoration: none; }
 .sidebar__enlace:hover {
   background: var(--superficie-alta);
   color: var(--texto);
-  transform: translateX(2px);
 }
 
 .sidebar__enlace--activo {
@@ -824,14 +822,14 @@ a { color: var(--acento); text-decoration: none; }
   box-shadow: 0 6px 24px rgb(120 90 20 / 42%);
 }
 
-.boton--dorado {
+[data-tema='claro'] .boton--dorado {
   background: linear-gradient(135deg, var(--dorado), #b8943f);
   color: #1a1206;
   box-shadow: 0 4px 16px rgb(217 180 91 / 25%);
   font-weight: 650;
 }
 
-.boton--dorado:hover:not(:disabled) {
+[data-tema='claro'] .boton--dorado:hover:not(:disabled) {
   box-shadow: 0 6px 24px rgb(217 180 91 / 40%);
   transform: translateY(-1px);
 }
@@ -1880,6 +1878,13 @@ textarea:disabled {
   white-space: nowrap;
 }
 
+/* Concepto de la deuda: se distingue del "N cuotas por cobrar" por peso y
+   color, para que la ventanilla vea de un golpe QUE esta cobrando. */
+.tabla__sub--concepto {
+  font-weight: 600;
+  color: var(--acento);
+}
+
 /* Columnas con minimo, para que el contenido no se apriete. */
 .tabla__col-deuda { min-width: 130px; }
 .tabla__col-estudiante { min-width: 190px; }
@@ -1909,4 +1914,458 @@ textarea:disabled {
 .tabla--elegible td:last-child {
   width: 110px;
   text-align: right;
+}
+
+
+/* ==========================================================================
+   MEJORAS DE INTERFAZ (ronda de pulido)
+   - Fondo estatico: la regla del PM prohibe animaciones que retrasen el cobro.
+   - Usuario con inicial, navegacion movil en una sola fila desplazable,
+     objetivos tactiles de 44px y foco visible en todos los controles.
+   ======================================================================== */
+
+.sidebar__usuario {
+  display: flex;
+  align-items: center;
+  gap: var(--esp-3);
+}
+
+.sidebar__avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radio-full);
+  background: var(--dorado-sutil);
+  color: var(--dorado);
+  font-weight: 700;
+  font-size: var(--texto-sm);
+  flex-shrink: 0;
+}
+
+.sidebar__usuario-texto {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.sidebar__nav > div:first-child .sidebar__enlace:first-child {
+  margin-top: var(--esp-2);
+}
+
+:where(a, button, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--celeste);
+  outline-offset: 2px;
+}
+
+.panel__accesos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--esp-2);
+  margin: var(--esp-4) 0 var(--esp-6);
+}
+
+.panel__accesos a {
+  padding: var(--esp-2) var(--esp-4);
+  border: 1px solid var(--borde-fuerte);
+  border-radius: var(--radio-full);
+  background: var(--superficie);
+  color: var(--texto);
+  font-size: var(--texto-sm);
+  font-weight: 500;
+}
+
+.panel__accesos a:hover {
+  border-color: var(--celeste);
+  color: var(--celeste);
+}
+
+.login__panel svg {
+  margin-bottom: var(--esp-5);
+}
+
+@media (max-width: 860px) {
+  .sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    flex-wrap: nowrap;
+  }
+
+  .sidebar__sub,
+  .sidebar__usuario-texto { display: none; }
+
+  .sidebar__nav {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    gap: var(--esp-1);
+  }
+
+  .sidebar__nav > div { display: flex; gap: var(--esp-1); }
+  .sidebar__enlace { white-space: nowrap; min-height: 44px; }
+
+  .sidebar__accion {
+    min-height: 44px;
+    font-size: 0;
+    gap: 0;
+    padding: var(--esp-2);
+  }
+
+  .sidebar__accion--salir { margin-top: 0; border-top: none; padding-top: var(--esp-2); }
+}
+
+/* ==========================================================================
+   ACABADO PREMIUM (ventanilla de banca privada)
+   --------------------------------------------------------------------------
+   Idea: un libro de caja bien impreso. Superficies solidas con filete fino,
+   un solo color de accion (laton), titulos en serif y cifras en peso ligero.
+   La pieza memorable es la cifra del dia, con un grabado tipo billete
+   (circulos concentricos) detras. El resto es deliberadamente silencioso.
+   Sin degradados en texto, sin brillos animados, sin cristal esmerilado.
+   ======================================================================== */
+
+:root,
+[data-tema='oscuro'] {
+  --fondo: radial-gradient(90% 55% at 0% 0%, #0f192e 0%, #070b15 62%);
+  --superficie: #0c1322;
+  --superficie-solida: #0c1322;
+  --superficie-alta: #121b2f;
+  --borde: rgba(255 255 255 / 7%);
+  --borde-fuerte: rgba(255 255 255 / 13%);
+  --borde-dorado: rgba(217 180 91 / 38%);
+  --sombra-xs: none;
+  --sombra-sm: 0 1px 0 rgb(0 0 0 / 40%);
+  --sombra: 0 12px 32px rgb(0 0 0 / 38%);
+  --radio-sm: 8px;
+  --radio: 12px;
+  --radio-lg: 16px;
+}
+
+[data-tema='claro'] {
+  --fondo: #f3f4f7;
+  --superficie: #ffffff;
+  --superficie-solida: #ffffff;
+  --superficie-alta: #f6f7fa;
+  --borde: rgba(10 20 40 / 9%);
+  --borde-fuerte: rgba(10 20 40 / 16%);
+  --sombra-xs: none;
+  --sombra-sm: 0 1px 2px rgb(10 20 40 / 8%);
+  --sombra: 0 10px 28px rgb(10 20 40 / 10%);
+  --radio-sm: 8px;
+  --radio: 12px;
+  --radio-lg: 16px;
+}
+
+:root {
+  --fuente-titulo: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
+}
+
+body { line-height: 1.5; }
+
+/* Sin aurora ni cristal: el fondo es estable y el contenido manda. */
+.app::before { display: none; }
+.tarjeta, .sidebar { backdrop-filter: none; }
+
+/* --- Titulos en serif ------------------------------------------------- */
+.contenido__titulo,
+.login__panel h1,
+.login__form h2 {
+  font-family: var(--fuente-titulo);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.contenido__titulo { font-size: var(--texto-3xl); line-height: 1.15; }
+.contenido__desc { color: var(--texto-suave); margin-top: var(--esp-2); }
+
+.sidebar__nombre {
+  font-family: var(--fuente-titulo);
+  font-size: var(--texto-lg);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+/* --- Barra lateral: solida, con filete --------------------------------- */
+.sidebar,
+[data-tema='claro'] .sidebar {
+  background: #080d19;
+  border-right: 1px solid var(--borde);
+}
+
+[data-tema='claro'] .sidebar { background: #ffffff; }
+
+.sidebar__grupo {
+  font-size: var(--texto-xs);
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-weight: 500;
+  color: var(--texto-suave);
+}
+
+.sidebar__enlace {
+  padding: 9px var(--esp-3);
+  border-radius: var(--radio-sm);
+  font-weight: 450;
+}
+
+.sidebar__enlace--activo {
+  background: rgb(255 255 255 / 5%);
+  box-shadow: none;
+  color: var(--texto);
+  font-weight: 550;
+}
+
+[data-tema='claro'] .sidebar__enlace--activo { background: rgb(10 20 40 / 5%); }
+
+.sidebar__enlace--activo::before {
+  left: -2px;
+  top: 22%;
+  bottom: 22%;
+  width: 3px;
+  background: var(--dorado);
+}
+
+.sidebar__enlace--activo .icono { color: var(--dorado); }
+
+/* --- Cabecera y cartas -------------------------------------------------- */
+.tarjeta {
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  box-shadow: none;
+  padding: var(--esp-5);
+}
+
+.tarjeta--interactiva:hover {
+  transform: none;
+  border-color: var(--borde-dorado);
+  box-shadow: none;
+}
+
+.tarjeta--destacada { border-color: var(--borde-dorado); box-shadow: none; }
+
+/* --- Portada: la cifra del dia ------------------------------------------ */
+.hero {
+  background: var(--superficie-solida);
+  border: 1px solid var(--borde);
+  box-shadow: inset 0 1px 0 var(--borde-dorado);
+  border-radius: var(--radio-lg);
+  padding: var(--esp-10) var(--esp-10) var(--esp-8);
+}
+
+/* Grabado de billete: anillos concentricos que se desvanecen hacia la izquierda. */
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 0 38%;
+  background: repeating-radial-gradient(
+    circle at 100% 0%,
+    transparent 0 9px,
+    rgb(217 180 91 / 9%) 9px 10px
+  );
+  -webkit-mask-image: linear-gradient(270deg, #000 0%, transparent 85%);
+  mask-image: linear-gradient(270deg, #000 0%, transparent 85%);
+  pointer-events: none;
+}
+
+.hero::after { display: none; }
+
+.hero__saludo {
+  font-size: var(--texto-md);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+  color: var(--texto-medio);
+  margin-bottom: var(--esp-3);
+}
+
+.hero__monto {
+  font-size: clamp(2.75rem, 6vw, 4.25rem);
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  color: var(--texto);
+}
+
+.hero__moneda {
+  font-size: var(--texto-xl);
+  font-weight: 500;
+  color: var(--dorado);
+  letter-spacing: 0.02em;
+}
+
+.hero__meta {
+  gap: 0;
+  margin-top: var(--esp-8);
+  padding-top: var(--esp-4);
+  border-top: 1px solid var(--borde);
+}
+
+.hero__dato { padding-right: var(--esp-6); }
+
+.hero__dato + .hero__dato {
+  padding-left: var(--esp-6);
+  border-left: 1px solid var(--borde);
+}
+
+.hero__dato .icono { color: var(--dorado); }
+
+/* --- Indicadores: sin brillo animado, sin degradado ---------------------- */
+.indicador { animation: none; align-items: center; }
+.indicador__icono::after { display: none; }
+
+.indicador__icono {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radio-sm);
+}
+
+.indicador__valor {
+  font-size: var(--texto-2xl);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.indicador__etiqueta { color: var(--texto-medio); }
+
+/* --- Botones: una sola accion principal, en laton ------------------------ */
+.boton {
+  min-height: 40px;
+  border-radius: var(--radio-sm);
+  font-weight: 550;
+  letter-spacing: 0;
+}
+
+.boton--grande { min-height: 48px; }
+
+.boton--primario,
+.boton--dorado {
+  background: var(--dorado);
+  border-color: var(--dorado);
+  color: #1a1405;
+  box-shadow: none;
+  font-weight: 600;
+}
+
+.boton--primario:hover:not(:disabled),
+.boton--dorado:hover:not(:disabled) {
+  background: var(--dorado-suave);
+  border-color: var(--dorado-suave);
+  box-shadow: none;
+}
+
+[data-tema='claro'] .boton--primario,
+[data-tema='claro'] .boton--dorado {
+  background: #7d5c12;
+  border-color: #7d5c12;
+  color: #ffffff;
+}
+
+[data-tema='claro'] .boton--primario:hover:not(:disabled),
+[data-tema='claro'] .boton--dorado:hover:not(:disabled) {
+  background: #8f6a18;
+  border-color: #8f6a18;
+}
+
+.boton--secundario {
+  background: transparent;
+  border-color: var(--borde-fuerte);
+  color: var(--texto);
+}
+
+.boton--secundario:hover:not(:disabled) {
+  background: var(--superficie-alta);
+  border-color: var(--borde-dorado);
+}
+
+.boton:active:not(:disabled) { transform: translateY(1px); }
+
+/* --- Campos: hundidos respecto a la tarjeta ------------------------------- */
+input,
+select,
+textarea {
+  height: 44px;
+  background: var(--gris-50);
+  border-color: var(--borde-fuerte);
+  border-radius: var(--radio-sm);
+}
+
+[data-tema='claro'] input,
+[data-tema='claro'] select,
+[data-tema='claro'] textarea { background: #ffffff; }
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  border-color: var(--dorado);
+  box-shadow: 0 0 0 3px var(--dorado-sutil);
+}
+
+.campo__etiqueta { font-weight: 550; color: var(--texto-medio); }
+
+/* --- Tablas: lectura de libro mayor -------------------------------------- */
+.tabla-envolvente {
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+}
+
+.tabla th {
+  background: transparent;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--texto-sm);
+  font-weight: 500;
+  color: var(--texto-medio);
+  padding: var(--esp-4) var(--esp-4) var(--esp-3);
+  border-bottom: 1px solid var(--borde-fuerte);
+}
+
+.tabla td {
+  padding: var(--esp-4);
+  border-bottom: 1px solid var(--borde);
+}
+
+.tabla tbody tr:hover { background: var(--superficie-alta); }
+
+/* --- Etiquetas de estado: pastilla fina ----------------------------------- */
+.etiqueta {
+  border-radius: var(--radio-full);
+  font-weight: 550;
+  letter-spacing: 0;
+}
+
+/* --- Inicio de sesion: panel de marca con el mismo grabado ---------------- */
+.login__panel {
+  position: relative;
+  overflow: hidden;
+  background: #070b15;
+}
+
+.login__panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-radial-gradient(
+    circle at 0% 100%,
+    transparent 0 11px,
+    rgb(217 180 91 / 8%) 11px 12px
+  );
+  -webkit-mask-image: radial-gradient(75% 75% at 0% 100%, #000, transparent);
+  mask-image: radial-gradient(75% 75% at 0% 100%, #000, transparent);
+  pointer-events: none;
+}
+
+.login__panel > * { position: relative; }
+.login__panel h1 { font-size: var(--texto-4xl); font-weight: 500; }
+.login__form { background: var(--superficie-solida); }
+.login__lista .icono { color: var(--dorado); }
+
+@media (max-width: 860px) {
+  .hero { padding: var(--esp-6) var(--esp-5); }
+  .hero__dato { padding: var(--esp-2) 0; width: 100%; border-left: none !important; padding-left: 0 !important; }
+  .hero__meta { flex-direction: column; }
+  .sidebar,
+  [data-tema='claro'] .sidebar { border-right: none; border-bottom: 1px solid var(--borde); }
 }

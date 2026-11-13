@@ -36,6 +36,8 @@ export interface DeudorRow {
   anio_lectivo: string;
   saldo_total: string;
   cuotas_pendientes: number;
+  /** Tipo de deuda segun la tarifa del plan: "Mensualidad", "Uniforme", "Matricula". */
+  conceptos: string;
   proximo_vencimiento: string | null;
   moneda: string | null;
 }
@@ -114,6 +116,11 @@ export class BusquedaDeudoresRepository {
         COALESCE(a.anio::text, 'Sin año') AS anio_lectivo,
         COALESCE(SUM(m.saldo_pendiente) FILTER (WHERE m.saldo_pendiente > 0), 0)::text AS saldo_total,
         COUNT(m.id) FILTER (WHERE m.saldo_pendiente > 0)::int AS cuotas_pendientes,
+        -- Tipo de deuda: el concepto de la TARIFA del plan (autoritativo), no el
+        -- de cada cuota. "Mensualidad 1", "Mensualidad marzo 2026" y
+        -- "Mensualidad 12" son la misma deuda: la ventanilla necesita ver
+        -- "Mensualidad", "Uniforme" o "Matricula".
+        COALESCE(MAX(tf.concepto), '') AS conceptos,
         to_char(MIN(m.fecha_vencimiento) FILTER (WHERE m.saldo_pendiente > 0), 'YYYY-MM-DD') AS proximo_vencimiento,
         MAX(pl.moneda) AS moneda
       FROM matriculas ma
@@ -121,6 +128,7 @@ export class BusquedaDeudoresRepository {
       LEFT JOIN grados g ON g.id = ma.grado_id
       LEFT JOIN anio_lectivo a ON a.id = ma.anio_lectivo_id
       LEFT JOIN planes_pago pl ON pl.matricula_id = ma.id
+      LEFT JOIN tarifas tf ON tf.id = pl.tarifa_id
       LEFT JOIN mensualidades m ON m.plan_pago_id = pl.id
       ${where}
       GROUP BY ma.id, e.id, e.nombres, e.apellidos, e.documento_identidad, g.nombre, a.anio

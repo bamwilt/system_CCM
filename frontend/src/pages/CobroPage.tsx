@@ -252,7 +252,7 @@ export default function CobroPage() {
                 }
               }}
             >
-              <div className="cobro__form">
+              <div>
                 <Campo
                   etiqueta="Monto a cobrar"
                   identificador="monto"

@@ -449,10 +449,13 @@ describe('sesion persistente tras recarga', () => {
 const CATALOGOS = {
   anios: [{ id: 7, anio: 2026, fecha_inicio: '2026-02-10', fecha_fin: '2026-11-10', activo: true }],
   grados: [{ id: 3, nombre: 'Tercero', nivel: 'Primaria', anio_lectivo_id: 7 }],
-  tarifas: [{ id: 9, concepto: 'Matricula 2026', monto: '1500.00', moneda: 'NIO', anio_lectivo_id: 7 }],
+  tarifas: [
+    { id: 9, concepto: 'Mensualidad 2026', monto: '800.00', moneda: 'NIO', anio_lectivo_id: 7 },
+    { id: 10, concepto: 'Uniforme 2026', monto: '500.00', moneda: 'NIO', anio_lectivo_id: 7 },
+  ],
   estudiantes: [
-    { id: 2, nombres: 'Ana', apellidos: 'Demo', documento_identidad: 'D-2', activo: true },
-    { id: 3, nombres: 'Luis', apellidos: 'Demo', documento_identidad: 'D-3', activo: true },
+    { id: 2, nombres: 'Ana', apellidos: 'Demo', documento_identidad: 'D-2', activo: true, grado: null, tiene_matricula: false },
+    { id: 3, nombres: 'Luis', apellidos: 'Demo', documento_identidad: 'D-3', activo: true, grado: null, tiene_matricula: true },
   ],
 };
 
@@ -464,7 +467,27 @@ function mockearCatalogos() {
       return Promise.reject({ response: { status: 401, data: {} } });
     }
     if (ruta.includes('/estudiantes') && !ruta.includes('anios-lectivos') && !ruta.includes('grados') && !ruta.includes('tarifas')) {
-      return Promise.resolve({ data: { estudiantes: CATALOGOS.estudiantes } });
+      // El backend filtra de verdad: aqui se replica para que la tabla muestre
+      // solo lo que coincide con los filtros (igual que en produccion).
+      const url = new URL('http://localhost' + ruta);
+      const nombre = (url.searchParams.get('nombre') ?? '').toLowerCase();
+      const documento = (url.searchParams.get('documento') ?? '').toLowerCase();
+      const grado = url.searchParams.get('grado') ?? '';
+      const sinMat = url.searchParams.get('sin_matricula') === 'true';
+      let lista = CATALOGOS.estudiantes;
+      if (nombre) {
+        lista = lista.filter((e) => `${e.nombres} ${e.apellidos}`.toLowerCase().includes(nombre));
+      }
+      if (documento) {
+        lista = lista.filter((e) => e.documento_identidad.toLowerCase().includes(documento));
+      }
+      if (grado) {
+        lista = lista.filter((e) => (e.grado ?? '') === grado);
+      }
+      if (sinMat) {
+        lista = lista.filter((e) => !e.tiene_matricula);
+      }
+      return Promise.resolve({ data: { estudiantes: lista } });
     }
     if (ruta.includes('anios-lectivos')) {
       return Promise.resolve({ data: { anios: CATALOGOS.anios } });
@@ -480,20 +503,27 @@ function mockearCatalogos() {
   window.sessionStorage.clear();
 }
 
+/** Elige al estudiante por la tabla (filtro nombre + boton Elegir), como en Registrar cobro. */
+async function elegirEstudiante(nombre: string) {
+  const caja = await screen.findByLabelText((_t, el) => coincide(el?.id || '', /filtro-nombre/));
+  fireEvent.change(caja, { target: { value: nombre } });
+  // La tabla se filtra mientras se escribe; se pulsa Elegir en la primera fila.
+  const opcion = await screen.findByRole('button', { name: (n) => coincide(n, /elegir/i) });
+  fireEvent.click(opcion);
+}
+
 /** Elige al estudiante por la lista y completa año, grado y tarifa. */
 async function completarDatosMatricula() {
-  fireEvent.change(await screen.findByLabelText((_t, el) => coincide(el?.id || '', /estudiante/)), {
-    target: { value: 'Ana' },
-  });
-  const opcion = await screen.findByRole('button', { name: (n) => coincide(n, /ana demo/i) });
-  fireEvent.click(opcion);
-  fireEvent.change(await screen.findByLabelText((_t, el) => coincide(el?.id || '', /anio/)), {
+  await elegirEstudiante('Ana');
+  // Ids exactos: el formulario y los filtros de la tabla comparten prefijos
+  // (filtro-grado vs grado), asi que se busca por id exacto.
+  fireEvent.change(await screen.findByLabelText((_t, el) => coincide(el?.id || '', /^anio$/)), {
     target: { value: '7' },
   });
-  fireEvent.change(await screen.findByLabelText((_t, el) => coincide(el?.id || '', /grado/)), {
+  fireEvent.change(await screen.findByLabelText((_t, el) => coincide(el?.id || '', /^grado$/)), {
     target: { value: '3' },
   });
-  fireEvent.change(await screen.findByLabelText((_t, el) => coincide(el?.id || '', /tarifa/)), {
+  fireEvent.change(await screen.findByLabelText((_t, el) => coincide(el?.id || '', /^tarifa$/)), {
     target: { value: '9' },
   });
 }
@@ -515,11 +545,10 @@ describe('nueva matricula', () => {
 
     await entrarAMatriculas('a@x.com');
 
+    await completarDatosMatricula();
+
     const crear = await screen.findByRole('button', { name: (n) => coincide(n, /crear matricula/) });
     // Sin fechas no se puede crear.
-    expect((crear as HTMLButtonElement).disabled).toBe(true);
-
-    await completarDatosMatricula();
     expect((crear as HTMLButtonElement).disabled).toBe(true);
 
     // Dos fechas = dos cuotas. El boton se habilita.
@@ -571,6 +600,39 @@ describe('nueva matricula', () => {
     fireEvent.change(screen.getByLabelText((_t, el) => coincide(el?.id || '', /autoriza/) || coincide(el?.textContent || '', /autorizado por/)), { target: { value: 'Direccion' } });
     expect((crear as HTMLButtonElement).disabled).toBe(false);
     expect(http.post).not.toHaveBeenCalledWith('/matriculas', expect.anything(), expect.anything());
+  });
+
+  it('la tarifa de pago unico (uniforme) solo admite UNA fecha', async () => {
+    http.post.mockResolvedValueOnce({
+      data: { csrfToken: 'c', user: { id: 1, email: 'a@x.com', nombre: 'A' }, grants: ['matriculas:manage'] },
+    });
+    mockearCatalogos();
+    renderConRutas('/matriculas/nueva', <App />);
+
+    await entrarAMatriculas('a@x.com');
+    await elegirEstudiante('Ana');
+    fireEvent.change(await screen.findByLabelText((_t, el) => coincide(el?.id || '', /^anio$/)), {
+      target: { value: '7' },
+    });
+    fireEvent.change(await screen.findByLabelText((_t, el) => coincide(el?.id || '', /^grado$/)), {
+      target: { value: '3' },
+    });
+    // Uniforme: pago unico, NO mensualidad.
+    fireEvent.change(await screen.findByLabelText((_t, el) => coincide(el?.id || '', /^tarifa$/)), {
+      target: { value: '10' },
+    });
+
+    const fechas = screen.getByLabelText((_t, el) => coincide(el?.id || '', /^fechas$/));
+    const crear = await screen.findByRole('button', { name: (n) => coincide(n, /crear matricula/) });
+
+    // Dos fechas: NO se puede (el uniforme se cobra una sola vez).
+    fireEvent.change(fechas, { target: { value: '2026-03-10, 2026-04-10' } });
+    expect((crear as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('alert').textContent).toContain('una sola vez');
+
+    // Una fecha: si se puede.
+    fireEvent.change(fechas, { target: { value: '2026-03-10' } });
+    expect((crear as HTMLButtonElement).disabled).toBe(false);
   });
 });
 

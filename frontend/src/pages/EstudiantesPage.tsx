@@ -58,7 +58,6 @@ export default function EstudiantesPage() {
   useEffect(() => {
     void buscar();
     // La busqueda inicial no depende de los filtros: se ejecuta al montar.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

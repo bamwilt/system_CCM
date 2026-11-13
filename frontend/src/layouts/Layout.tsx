@@ -22,11 +22,12 @@ interface Modulo {
   etiqueta: string;
   icono: string;
   permiso: string;
-  grupo: 'operacion' | 'consulta';
+  grupo: 'inicio' | 'operacion' | 'consulta';
   exacto?: boolean;
 }
 
 const MODULOS: Modulo[] = [
+  { ruta: '/', etiqueta: 'Resumen del día', icono: 'trending_up', permiso: '', grupo: 'inicio', exacto: true },
   { ruta: '/cobro', etiqueta: 'Registrar cobro', icono: 'payments', permiso: 'pagos:manage', grupo: 'operacion' },
   { ruta: '/matriculas/nueva', etiqueta: 'Nueva matrícula', icono: 'add_circle', permiso: 'matriculas:manage', grupo: 'operacion' },
   { ruta: '/estudiantes', etiqueta: 'Estudiantes', icono: 'school', permiso: 'estudiantes:read', grupo: 'consulta' },
@@ -37,6 +38,7 @@ const MODULOS: Modulo[] = [
 ];
 
 const GRUPOS: Array<{ id: Modulo['grupo']; titulo: string }> = [
+  { id: 'inicio', titulo: '' },
   { id: 'operacion', titulo: 'Operación' },
   { id: 'consulta', titulo: 'Consulta' },
 ];
@@ -71,7 +73,7 @@ export default function Layout() {
             }
             return (
               <div key={grupo.id}>
-                <div className="sidebar__grupo">{grupo.titulo}</div>
+                {grupo.titulo ? <div className="sidebar__grupo">{grupo.titulo}</div> : null}
                 {delGrupo.map((m) => (
                   <NavLink
                     key={m.ruta}
@@ -95,8 +97,13 @@ export default function Layout() {
         <div className="sidebar__pie">
           {sesion ? (
             <div className="sidebar__usuario">
-              <strong>{sesion.nombre || sesion.email}</strong>
-              {sesion.email}
+              <span className="sidebar__avatar" aria-hidden="true">
+                {(sesion.nombre || sesion.email || '?').trim().charAt(0).toUpperCase()}
+              </span>
+              <span className="sidebar__usuario-texto">
+                <strong>{sesion.nombre || sesion.email}</strong>
+                {sesion.nombre ? sesion.email : null}
+              </span>
             </div>
           ) : null}
           <button type="button" className="sidebar__accion" onClick={() => navegar('/configuracion')}>
@@ -112,7 +119,7 @@ export default function Layout() {
             aria-pressed={tema === 'oscuro'}
           >
             <IconoTema oscuro={tema === 'oscuro'} />
-            {tema === 'oscuro' ? 'Tema oscuro activo' : 'Tema claro activo'}
+            {tema === 'oscuro' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}
           </button>
           <button
             type="button"

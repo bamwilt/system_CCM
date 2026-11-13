@@ -292,17 +292,26 @@ export class MatriculaService {
     // 6. Tarifa activa del ano lectivo (explicita)
     const tarifa = await client.query<{
       id: number;
+      concepto: string;
       monto: string;
       moneda: string;
       anio_lectivo_id: number;
       activo: boolean;
     }>(
-      'SELECT id, monto::text AS monto, moneda, anio_lectivo_id, activo FROM tarifas WHERE id = $1 AND activo = TRUE FOR SHARE',
+      'SELECT id, concepto, monto::text AS monto, moneda, anio_lectivo_id, activo FROM tarifas WHERE id = $1 AND activo = TRUE FOR SHARE',
       [datos.plan_pago.tarifa_id]
     );
     if (tarifa.rows.length === 0) {
       throw new AppError('Tarifa no encontrada o inactiva', 400, 'BAD_REQUEST');
     }
+    // La tarifa decide la NATURALEZA del cobro, no el numero de fechas:
+    //   - "Mensualidad": se cobra varias veces -> una cuota por fecha.
+    //   - "Matricula" / "Uniforme": se cobra UNA sola vez -> una unica cuota.
+    // Antes todas se trataban como mensualidad y las cuotas se llamaban
+    // "Mensualidad N" incluso cuando la tarifa era la matricula o el uniforme:
+    // de ahi que en la pantalla de cobro se vieran revueltos los conceptos.
+    const conceptoTarifa = tarifa.rows[0].concepto;
+    const esRecurrente = /mensual/i.test(conceptoTarifa);
     if (tarifa.rows[0].anio_lectivo_id !== datos.anio_lectivo_id) {
       throw new AppError('Tarifa no pertenece al ano lectivo', 400, 'BAD_REQUEST');
     }
@@ -362,6 +371,15 @@ export class MatriculaService {
     if (totalCuotas < MIN_CUOTAS || totalCuotas > MAX_CUOTAS) {
       throw new AppError('Numero de cuotas fuera del rango permitido', 400, 'BAD_REQUEST');
     }
+    // Pago unico (matricula, uniforme): UNA fecha, no varias. Se rechaza aqui
+    // y NO despues de crear la matricula: la validacion es de origen.
+    if (!esRecurrente && totalCuotas !== 1) {
+      throw new AppError(
+        `La tarifa "${conceptoTarifa}" se cobra una sola vez: indique una unica fecha de vencimiento`,
+        400,
+        'BAD_REQUEST'
+      );
+    }
 
     // 8. Crear matricula. fecha_matricula omitida => el repositorio aplica COALESCE(NULL, NOW())
     // (columna NOT NULL). Se pasa la cadena validada; PostgreSQL la castea a timestamptz
@@ -402,12 +420,15 @@ export class MatriculaService {
     //     division JS ni redondeo): el de la tarifa, o con el descuento
     //     autorizado ya aplicado. Ninguna cuota se divide ni se prorratea.
     for (let i = 0; i < totalCuotas; i++) {
+      // El concepto de la cuota sale de la tarifa, no de un texto fijo: una
+      // mensualidad se numera ("Mensualidad 1"), un pago unico no ("Matricula").
+      const conceptoCuota = esRecurrente ? `${conceptoTarifa} ${i + 1}` : conceptoTarifa;
       await client.query(
         `INSERT INTO mensualidades (
           plan_pago_id, numero_cuota, concepto, monto_original,
           monto_pagado, saldo_pendiente, fecha_vencimiento, estado, mora_aplicada
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [planPagoId, i + 1, `Mensualidad ${i + 1}`, montoCuota, 0, montoCuota, fechas[i], 'PENDIENTE', 0]
+        [planPagoId, i + 1, conceptoCuota, montoCuota, 0, montoCuota, fechas[i], 'PENDIENTE', 0]
       );
     }
 

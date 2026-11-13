@@ -1,23 +1,40 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useSesion } from '../context/SesionContexto';
-import { Boton, Campo, Confirmacion, Cargando, Etiqueta, Mensaje, Notificacion } from '../components/Comunes';
+import {
+  Boton,
+  Cabecera,
+  Campo,
+  Cargando,
+  Confirmacion,
+  Etiqueta,
+  Importe,
+  Mensaje,
+  Notificacion,
+} from '../components/Comunes';
+import TablaEstudiantes, { type EstudianteElegible } from '../components/TablaEstudiantes';
 import { mutationHeaders } from '../services/api';
-import { conMoneda, iniciales } from '../utils/formato';
+import { conMoneda } from '../utils/formato';
 import api from '../services/api';
 
 /**
- * NUEVA MATRICULA (FASE 9)
+ * ============================================================================
+ * NUEVA MATRÍCULA (FASE 9.B)
+ * ============================================================================
  *
- * Completa el flujo que faltaba: crear la matricula con su plan de pago y sus
- * cuotas desde la interfaz, que es la tarea central del SGPM.
+ * Misma composición que "Registrar cobro":
+ *   - Cabecera con título, descripción y acción.
+ *   - TablaEstudiantes arriba: filtros por nombre, documento y grado que se
+ *     aplican mientras se escribe, y un botón "Elegir" por fila que completa
+ *     los datos (igual que TablaDeudores en la pantalla de cobro).
+ *   - Layout de dos columnas: formulario a la izquierda, resumen a la derecha.
+ *   - Confirmación explícita antes de crear.
  *
- * Prevencion de errores (requisito del PM):
- * - el numero de cuotas lo decide la cantidad de fechas de vencimiento que la
- *   persona cargue; no hay valor por defecto inventado;
- * - cada fecha se valida en el navegador antes de enviar, pero el backend la
- *   revalida (nunca se confia en la validacion del cliente);
- * - confirmacion explicita antes de crear, porque la operacion es transaccional
- *   y genera obligaciones.
+ * Prevención de errores (requisito del PM):
+ * - el número de cuotas lo decide la cantidad de fechas de vencimiento;
+ * - cada fecha se valida en el navegador y el backend la revalida;
+ * - un descuento sin autorizador impide continuar;
+ * - el botón se deshabilita hasta que el formulario es válido.
  */
 
 interface Anio {
@@ -30,6 +47,7 @@ interface Anio {
 interface Grado {
   id: number;
   nombre: string;
+  nivel: string;
   anio_lectivo_id: number;
 }
 
@@ -43,13 +61,10 @@ interface Tarifa {
 
 export default function NuevaMatriculaPage() {
   const { puede } = useSesion();
+  const navegar = useNavigate();
+
   const [estudianteId, setEstudianteId] = useState('');
-  const [textoEstudiante, setTextoEstudiante] = useState('');
-  const [candidatos, setCandidatos] = useState<Array<{ id: number; nombres: string; apellidos: string; documento_identidad: string; activo: boolean }>>([]);
-  const [buscandoEstudiante, setBuscandoEstudiante] = useState(false);
-  // Al elegir una persona se llena el cuadro con su nombre: sin este bloqueo,
-  // ese texto volveria a disparar la busqueda y la lista reapareceria.
-  const [busquedaBloqueada, setBusquedaBloqueada] = useState(false);
+  const [estudianteElegido, setEstudianteElegido] = useState<EstudianteElegible | null>(null);
   const [anioId, setAnioId] = useState('');
   const [gradoId, setGradoId] = useState('');
   const [tarifaId, setTarifaId] = useState('');
@@ -63,39 +78,57 @@ export default function NuevaMatriculaPage() {
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nota, setNota] = useState<string | null>(null);
-  const [resultado, setResultado] = useState<{ matricula: { id: number }; plan_pago_id: number; total_cuotas: number } | null>(null);
+  const [resultado, setResultado] = useState<{
+    matricula: { id: number };
+    plan_pago_id: number;
+    total_cuotas: number;
+  } | null>(null);
 
-  // La lista de estudiantes se filtra mientras se escribe (mismo patron que la
-  // tabla de a quien cobrar): la persona elige, no escribe identificadores.
-  useEffect(() => {
-    if (busquedaBloqueada || textoEstudiante.trim().length < 2) {
-      setCandidatos([]);
-      return;
-    }
-    const espera = window.setTimeout(() => {
-      void (async () => {
-        setBuscandoEstudiante(true);
-        try {
-          const r = await api.get<{
-            estudiantes: Array<{
-              id: number;
-              nombres: string;
-              apellidos: string;
-              documento_identidad: string;
-              activo: boolean;
-            }>;
-          }>('/estudiantes', { params: { q: textoEstudiante.trim(), limite: 20 } });
-          setCandidatos(r.data.estudiantes ?? []);
-        } catch {
-          setCandidatos([]);
-        } finally {
-          setBuscandoEstudiante(false);
-        }
-      })();
-    }, 200);
-    return () => window.clearTimeout(espera);
-  }, [textoEstudiante, busquedaBloqueada]);
+  const tarifaElegida = tarifas.find((t) => String(t.id) === tarifaId);
+  // La tarifa define la naturaleza del cobro: la mensualidad se cobra varias
+  // veces (una cuota por fecha); la matricula y el uniforme se cobran UNA sola
+  // vez. La interfaz es la misma, la validacion no.
+  const esRecurrente = tarifaElegida ? /mensual/i.test(tarifaElegida.concepto) : false;
+  const montoPorCuota = tarifaElegida ? conMoneda(tarifaElegida.monto, tarifaElegida.moneda) : '—';
+  // Año (número) seleccionado: la tabla lo usa para saber si el estudiante ya
+  // cursa ese año, en cuyo caso no se le puede volver a matricular.
+  const anioActivo = anios.find((a) => String(a.id) === anioId)?.anio ?? null;
 
+  const listaFechas = fechasValidas();
+  const totalCuotas = listaFechas?.length ?? 0;
+  const totalPlan = tarifaElegida && listaFechas ? Number(tarifaElegida.monto) * listaFechas.length : 0;
+
+  function elegir(estudiante: EstudianteElegible) {
+    setEstudianteId(String(estudiante.id));
+    setEstudianteElegido(estudiante);
+    // Al cambiar de persona se limpia la academia elegida: no arrastra grados
+    // ni tarifas de otra matricula.
+    setAnioId('');
+    setGradoId('');
+    setTarifaId('');
+    setFechas('');
+    setDescuento('');
+    setAutorizadoPor('');
+  }
+
+  /** Quita la seleccion: vuelve al estado inicial para elegir a otro. */
+  function deseleccionar() {
+    setEstudianteId('');
+    setEstudianteElegido(null);
+    setAnioId('');
+    setGradoId('');
+    setTarifaId('');
+    setFechas('');
+    setDescuento('');
+    setAutorizadoPor('');
+    setResultado(null);
+    setNota(null);
+    setError(null);
+  }
+
+  // -------------------------------------------------------------------------
+  // Catálogos: años, grados y tarifas
+  // -------------------------------------------------------------------------
   useEffect(() => {
     if (!puede('matriculas:manage')) {
       return;
@@ -110,13 +143,13 @@ export default function NuevaMatriculaPage() {
         setAnios(rAnios.data.anios ?? []);
         setGrados(rGrados.data.grados ?? []);
         setTarifas(rTarifas.data.tarifas ?? []);
-      } catch (e) {
-        setError('No se pudieron cargar los catalogos (años, grados, tarifas).');
+      } catch {
+        setError('No se pudieron cargar los catálogos (años, grados, tarifas).');
       }
     })();
   }, [puede]);
 
-  // Grado y tarifa dependen del año elegido: se recargan al cambiarlo.
+  // Grado y tarifa dependen del año elegido.
   useEffect(() => {
     if (anioId === '') {
       return;
@@ -140,19 +173,15 @@ export default function NuevaMatriculaPage() {
         setTarifas([]);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anioId]);
 
-  const estudianteElegido = candidatos.find((c) => String(c.id) === estudianteId)
-    ? `${candidatos.find((c) => String(c.id) === estudianteId)?.nombres ?? ''} ${candidatos.find((c) => String(c.id) === estudianteId)?.apellidos ?? ''}`
-    : textoEstudiante;
-
-  // Los años se eligen: sin año no hay grados ni tarifas que ofrecer.
-  const gradosDelAnio = grados;
-  const tarifasDelAnio = tarifas;
-
   if (!puede('matriculas:manage')) {
-    return <Mensaje tipo="info">Su usuario no tiene permiso para crear matriculas.</Mensaje>;
+    return (
+      <>
+        <Cabecera titulo="Nueva matrícula" />
+        <Mensaje tipo="info">Su usuario no tiene permiso para crear matrículas.</Mensaje>
+      </>
+    );
   }
 
   function fechasValidas(): string[] | null {
@@ -167,14 +196,12 @@ export default function NuevaMatriculaPage() {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) {
         return null;
       }
-      // Fecha real: evita que el navegador acepte 2026-02-31.
       const [y, m, d] = f.split('-').map(Number);
       const fecha = new Date(Date.UTC(y, m - 1, d));
       if (fecha.getUTCFullYear() !== y || fecha.getUTCMonth() !== m - 1 || fecha.getUTCDate() !== d) {
         return null;
       }
     }
-    // Orden ascendente y sin repetidas: el motor exige ambas condiciones.
     const ordenadas = [...lista].sort();
     if (ordenadas.join('|') !== lista.join('|')) {
       return null;
@@ -186,17 +213,23 @@ export default function NuevaMatriculaPage() {
   }
 
   function valido(): boolean {
-    // Prevencion en el origen: un descuento sin autorizador no deja continuar,
-    // en lugar de fallar despues de confirmar.
     if (descuento.trim() !== '' && autorizadoPor.trim() === '') {
+      return false;
+    }
+    const fechas = fechasValidas();
+    if (fechas === null) {
+      return false;
+    }
+    // La matricula y el uniforme se cobran una sola vez: una unica fecha. La
+    // mensualidad admite varias (una cuota por fecha).
+    if (!esRecurrente && fechas.length !== 1) {
       return false;
     }
     return (
       /^[1-9][0-9]*$/.test(estudianteId.trim()) &&
       /^[1-9][0-9]*$/.test(anioId.trim()) &&
       /^[1-9][0-9]*$/.test(gradoId.trim()) &&
-      /^[1-9][0-9]*$/.test(tarifaId.trim()) &&
-      fechasValidas() !== null
+      /^[1-9][0-9]*$/.test(tarifaId.trim())
     );
   }
 
@@ -216,7 +249,7 @@ export default function NuevaMatriculaPage() {
       };
       if (descuento.trim() !== '') {
         if (autorizadoPor.trim() === '') {
-          setError('Un descuento requiere indicar quien lo autoriza.');
+          setError('Un descuento requiere indicar quién lo autoriza.');
           setEnviando(false);
           setConfirmando(false);
           return;
@@ -228,8 +261,12 @@ export default function NuevaMatriculaPage() {
       }
       const respuesta = await api.post('/matriculas', cuerpo, { headers: mutationHeaders() });
       setResultado(respuesta.data);
-      setNota(`Matricula creada con ${respuesta.data.total_cuotas} cuotas.`);
+      setNota(`Matrícula creada con ${respuesta.data.total_cuotas} cuotas.`);
       setEstudianteId('');
+      setEstudianteElegido(null);
+      setAnioId('');
+      setGradoId('');
+      setTarifaId('');
       setFechas('');
       setDescuento('');
       setAutorizadoPor('');
@@ -237,7 +274,7 @@ export default function NuevaMatriculaPage() {
       const mensaje =
         (e as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
           ?.message;
-      setError(typeof mensaje === 'string' ? mensaje : 'No se pudo crear la matricula.');
+      setError(typeof mensaje === 'string' ? mensaje : 'No se pudo crear la matrícula.');
     } finally {
       setEnviando(false);
       setConfirmando(false);
@@ -245,181 +282,273 @@ export default function NuevaMatriculaPage() {
   }
 
   return (
-    <div className="matricula">
-      <h2>Nueva matricula</h2>
+    <>
+      <Cabecera
+        titulo="Nueva matrícula"
+        descripcion="Elija al estudiante, el año lectivo, el grado, la tarifa y las fechas de vencimiento."
+        accion={
+          <Boton tipo="secundario" icono="school" onClick={() => navegar('/estudiantes')}>
+            Ver estudiantes
+          </Boton>
+        }
+      />
 
-      {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
+      {error ? <Mensaje tipo="error" onCerrar={() => setError(null)}>{error}</Mensaje> : null}
       {nota ? <Notificacion tipo="exito" texto={nota} onCerrar={() => setNota(null)} /> : null}
 
-      <form
-        onSubmit={(evento) => {
-          evento.preventDefault();
-          if (valido()) {
-            setConfirmando(true);
-          }
-        }}
-      >
-        <Campo etiqueta="Estudiante" identificador="estudiante">
-          <div className="buscador__entrada">
-            <input
-              id="estudiante"
-              type="search"
-              autoComplete="off"
-              value={textoEstudiante}
-              placeholder="Busque por nombre, apellido o documento"
-              onChange={(e) => {
-                setBusquedaBloqueada(false);
-                setTextoEstudiante(e.target.value);
-                if (e.target.value === '') {
-                  setEstudianteId('');
-                }
-              }}
-            />
-          </div>
-          {/* Lista de personas reales: elegir, no escribir un numero. */}
-          {textoEstudiante.trim().length >= 2 && !busquedaBloqueada ? (
-            <ul className="buscador__resultados">
-              {buscandoEstudiante ? (
-                <li>
-                  <Cargando texto="Buscando estudiantes…" />
-                </li>
-              ) : candidatos.length === 0 ? (
-                <li>
-                  <p className="buscador__vacio">Ningún estudiante coincide con “{textoEstudiante}”.</p>
-                </li>
+      {/* ---------------- Paso 1: tabla para elegir al estudiante ---------------- */}
+      <TablaEstudiantes
+        onElegir={elegir}
+        seleccionadoId={estudianteId ? Number(estudianteId) : null}
+        anioActivo={anioActivo}
+      />
+
+      {/* -------- Paso 2 y 3: formulario + resumen (siempre visibles) -------- */}
+      <div className="cobro">
+          {/* Columna izquierda: formulario */}
+          <div className="cobro__col">
+            <section className="cobro__panel">
+              <h2 className="panel__titulo">
+                <span className="icono">receipt_long</span>
+                2. Datos de la matrícula
+              </h2>
+              {estudianteElegido ? (
+                <div className="elegido" style={{ marginBottom: 'var(--esp-4)' }}>
+                  <span className="buscador__avatar" aria-hidden="true">
+                    {estudianteElegido.nombres.charAt(0)}
+                    {estudianteElegido.apellidos.charAt(0)}
+                  </span>
+                  <div className="elegido__texto">
+                    <div className="elegido__nombre">
+                      {estudianteElegido.nombres} {estudianteElegido.apellidos}
+                    </div>
+                    <div className="elegido__meta">
+                      documento {estudianteElegido.documento_identidad} · estudiante #{estudianteElegido.id}
+                      {estudianteElegido.grado ? ` · cursa ${estudianteElegido.grado}` : ''}
+                    </div>
+                  </div>
+                  <Etiqueta tipo="info" icono="badge">
+                    {estudianteElegido.tiene_matricula
+                      ? `Matriculado en ${estudianteElegido.ultimo_anio}`
+                      : 'Sin matrícula'}
+                  </Etiqueta>
+                  <Boton tipo="fantasma" icono="close" onClick={deseleccionar}>
+                    Quitar
+                  </Boton>
+                </div>
               ) : (
-                candidatos.map((e) => (
-                  <li key={e.id}>
-                    <button
-                      type="button"
-                      className="buscador__opcion"
-                      onClick={() => {
-                        setEstudianteId(String(e.id));
-                        setTextoEstudiante(`${e.nombres} ${e.apellidos}`);
-                        setBusquedaBloqueada(true);
-                        setCandidatos([]);
-                        setAnioId('');
-                        setGradoId('');
-                        setTarifaId('');
-                      }}
-                    >
-                      <span className="buscador__avatar" aria-hidden="true">
-                        {iniciales(`${e.nombres} ${e.apellidos}`)}
-                      </span>
-                      <span className="buscador__texto">
-                        <span className="buscador__nombre">
-                          {e.nombres} {e.apellidos}
-                        </span>
-                        <span className="buscador__meta">
-                          documento {e.documento_identidad} · estudiante #{e.id}
-                        </span>
-                      </span>
-                      {e.activo ? null : <Etiqueta tipo="aviso">Inactivo</Etiqueta>}
-                    </button>
-                  </li>
-                ))
+                <div className="panel__vacio" style={{ marginBottom: 'var(--esp-3)' }}>
+                  <span className="icono">person_search</span>
+                  <span>
+                    Elija un estudiante arriba. Los campos ya puede irlos completando.
+                  </span>
+                </div>
               )}
-            </ul>
-          ) : null}
-          {estudianteId !== '' ? (
-            <p className="campo__pie">
-              Seleccionado: <strong>{estudianteElegido}</strong>
-            </p>
-          ) : (
-            <p className="campo__pie">Escriba al menos dos letras para buscar.</p>
-          )}
-        </Campo>
+              <form
+                onSubmit={(evento) => {
+                  evento.preventDefault();
+                  if (valido()) {
+                    setConfirmando(true);
+                  }
+                }}
+              >
+                <div>
+                  <Campo
+                    etiqueta="Año lectivo"
+                    identificador="anio"
+                    ayuda="Del año depende qué grados y tarifas se ofrecen."
+                  >
+                    <select id="anio" value={anioId} onChange={(e) => setAnioId(e.target.value)}>
+                      <option value="">Seleccione el año</option>
+                      {anios.map((a) => (
+                        <option key={a.id} value={String(a.id)}>
+                          {a.anio}
+                        </option>
+                      ))}
+                    </select>
+                  </Campo>
 
-        <Campo etiqueta="Anio lectivo" identificador="anio" ayuda="Del año depende qué grados y tarifas se ofrecen.">
-          <select id="anio" value={anioId} onChange={(e) => setAnioId(e.target.value)}>
-            <option value="">Seleccione el año</option>
-            {anios.map((a) => (
-              <option key={a.id} value={String(a.id)}>
-                {a.anio}
-              </option>
-            ))}
-          </select>
-        </Campo>
+                  <Campo etiqueta="Grado" identificador="grado">
+                    <select id="grado" value={gradoId} onChange={(e) => setGradoId(e.target.value)}>
+                      <option value="">
+                        {anioId === '' ? 'Primero elija el año' : 'Seleccione el grado'}
+                      </option>
+                      {grados.map((g) => (
+                        <option key={g.id} value={String(g.id)}>
+                          {g.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </Campo>
 
-        <Campo etiqueta="Grado" identificador="grado">
-          <select id="grado" value={gradoId} onChange={(e) => setGradoId(e.target.value)}>
-            <option value="">
-              {anioId === '' ? 'Primero elija el año' : 'Seleccione el grado'}
-            </option>
-            {gradosDelAnio.map((g) => (
-              <option key={g.id} value={String(g.id)}>
-                {g.nombre}
-              </option>
-            ))}
-          </select>
-        </Campo>
+                  <Campo
+                    etiqueta="Tarifa"
+                    identificador="tarifa"
+                    ayuda="El monto de la tarifa es el de CADA cuota."
+                  >
+                    <select id="tarifa" value={tarifaId} onChange={(e) => setTarifaId(e.target.value)}>
+                      <option value="">
+                        {anioId === '' ? 'Primero elija el año' : 'Seleccione la tarifa'}
+                      </option>
+                      {tarifas.map((t) => (
+                        <option key={t.id} value={String(t.id)}>
+                          {t.concepto} — <Importe valor={t.monto} moneda={t.moneda} />
+                        </option>
+                      ))}
+                    </select>
+                  </Campo>
 
-        <Campo etiqueta="Tarifa" identificador="tarifa" ayuda="El monto de la tarifa es el de CADA cuota.">
-          <select id="tarifa" value={tarifaId} onChange={(e) => setTarifaId(e.target.value)}>
-            <option value="">
-              {anioId === '' ? 'Primero elija el año' : 'Seleccione la tarifa'}
-            </option>
-            {tarifasDelAnio.map((t) => (
-              <option key={t.id} value={String(t.id)}>
-                {t.concepto} — {conMoneda(t.monto, t.moneda)}
-              </option>
-            ))}
-          </select>
-        </Campo>
+                  <Campo
+                    etiqueta={esRecurrente ? 'Fechas de vencimiento' : 'Fecha de vencimiento'}
+                    identificador="fechas"
+                    ayuda={
+                      esRecurrente
+                        ? 'Separadas por comas, ascendentes y sin repetir. La cantidad de fechas ES el número de cuotas.'
+                        : 'La matrícula y el uniforme se cobran UNA sola vez: indique una única fecha.'
+                    }
+                  >
+                    <input
+                      id="fechas"
+                      value={fechas}
+                      onChange={(e) => setFechas(e.target.value)}
+                      placeholder={esRecurrente ? '2026-03-10, 2026-04-10' : '2026-03-10'}
+                    />
+                  </Campo>
+                  {/* Aviso vivo: evita el error despues de confirmar. */}
+                  {tarifaElegida && !esRecurrente && listaFechas !== null && listaFechas.length !== 1 ? (
+                    <p className="campo__error" role="alert">
+                      La tarifa "{tarifaElegida.concepto}" se cobra una sola vez: deje una única fecha.
+                    </p>
+                  ) : null}
 
-        <Campo
-          etiqueta="Fechas de vencimiento"
-          identificador="fechas"
-          ayuda="Separadas por comas, ascendentes y sin repetir. La cantidad de fechas ES el numero de cuotas: no hay valor por defecto."
-        >
-          <input
-            id="fechas"
-            value={fechas}
-            onChange={(e) => setFechas(e.target.value)}
-            placeholder="2026-03-10, 2026-04-10"
-          />
-        </Campo>
+                  <Campo
+                    etiqueta="Descuento autorizado (opcional)"
+                    identificador="descuento"
+                    ayuda="Porcentaje sobre el monto de la tarifa. Requiere indicar quién lo autoriza."
+                  >
+                    <input
+                      id="descuento"
+                      inputMode="decimal"
+                      value={descuento}
+                      onChange={(e) => setDescuento(e.target.value)}
+                    />
+                  </Campo>
+                  {descuento.trim() !== '' && autorizadoPor.trim() === '' ? (
+                    <p className="campo__error" role="alert">
+                      Indique quién autoriza el descuento.
+                    </p>
+                  ) : null}
 
-        <Campo
-          etiqueta="Descuento autorizado (opcional)"
-          identificador="descuento"
-          ayuda="Porcentaje sobre el monto de la tarifa. Requiere indicar quien lo autoriza."
-        >
-          <input
-            id="descuento"
-            inputMode="decimal"
-            value={descuento}
-            onChange={(e) => setDescuento(e.target.value)}
-          />
-        </Campo>
-        {descuento.trim() !== '' && autorizadoPor.trim() === '' ? (
-          <p className="campo__error" role="alert">
-            Indique quien autoriza el descuento.
-          </p>
-        ) : null}
+                  {descuento.trim() !== '' ? (
+                    <Campo etiqueta="Autorizado por" identificador="autoriza">
+                      <input
+                        id="autoriza"
+                        value={autorizadoPor}
+                        onChange={(e) => setAutorizadoPor(e.target.value)}
+                      />
+                    </Campo>
+                  ) : null}
+                </div>
 
-        {descuento.trim() !== '' ? (
-          <Campo etiqueta="Autorizado por" identificador="autoriza">
-            <input
-              id="autoriza"
-              value={autorizadoPor}
-              onChange={(e) => setAutorizadoPor(e.target.value)}
-            />
-          </Campo>
-        ) : null}
+                <div className="cobro__acciones">
+                  <span className="cobro__nota">
+                    {totalCuotas > 0 ? `Plan: ${totalCuotas} cuota${totalCuotas !== 1 ? 's' : ''}` : ''}
+                    {totalPlan > 0
+                      ? ` · Total: ${conMoneda(totalPlan.toFixed(2), tarifaElegida?.moneda ?? null)}`
+                      : ''}
+                  </span>
+                  <Boton
+                    tipo="primario"
+                    disabled={!valido()}
+                    onClick={() => {
+                      if (valido()) {
+                        setConfirmando(true);
+                      }
+                    }}
+                  >
+                    Crear matricula
+                  </Boton>
+                </div>
+              </form>
+            </section>
+          </div>
 
-        <Boton tipo="primario" disabled={!valido()}>
-          Crear matricula
-        </Boton>
-      </form>
+          {/* Columna derecha: resumen de la operación */}
+          <div className="cobro__col cobro__panel--crecer">
+            <section className="cobro__panel">
+              <h2 className="panel__titulo">
+                <span className="icono">receipt_long</span>
+                Resumen de la operación
+              </h2>
+              <dl className="resumen">
+                <div className="resumen__fila">
+                  <dt>Persona</dt>
+                  <dd>
+                    {estudianteElegido
+                      ? `${estudianteElegido.nombres} ${estudianteElegido.apellidos}`
+                      : '—'}
+                  </dd>
+                </div>
+                <div className="resumen__fila">
+                  <dt>Año lectivo</dt>
+                  <dd>{anios.find((a) => String(a.id) === anioId)?.anio ?? '—'}</dd>
+                </div>
+                <div className="resumen__fila">
+                  <dt>Grado</dt>
+                  <dd>{grados.find((g) => String(g.id) === gradoId)?.nombre ?? '—'}</dd>
+                </div>
+                <div className="resumen__fila">
+                  <dt>Tarifa</dt>
+                  <dd>{tarifaElegida?.concepto ?? '—'}</dd>
+                </div>
+                {tarifaElegida ? (
+                  <div className="resumen__fila">
+                    <dt>Tipo de cobro</dt>
+                    <dd>
+                      {esRecurrente ? 'Mensual · una cuota por fecha' : 'Pago único · una sola cuota'}
+                    </dd>
+                  </div>
+                ) : null}
+                <div className="resumen__fila">
+                  <dt>{esRecurrente ? 'Monto por cuota' : 'Monto'}</dt>
+                  <dd>{montoPorCuota}</dd>
+                </div>
+                <div className="resumen__fila">
+                  <dt>Número de cuotas</dt>
+                  <dd>{totalCuotas > 0 ? String(totalCuotas) : '—'}</dd>
+                </div>
+                {totalPlan > 0 ? (
+                  <div className="resumen__fila resumen__fila--total">
+                    <dt>Total del plan</dt>
+                    <dd>{conMoneda(totalPlan.toFixed(2), tarifaElegida?.moneda ?? null)}</dd>
+                  </div>
+                ) : null}
+                {descuento.trim() !== '' ? (
+                  <div className="resumen__fila">
+                    <dt>Descuento</dt>
+                    <dd>
+                      {descuento.trim()}% autorizado por {autorizadoPor || '—'}
+                    </dd>
+                  </div>
+                ) : null}
+              </dl>
+              {totalCuotas === 0 && anioId !== '' && gradoId !== '' && tarifaId !== '' ? (
+                <div className="panel__vacio">
+                  <span className="icono">error</span>
+                  <p>Complete las fechas de vencimiento para ver el resumen del plan.</p>
+                </div>
+              ) : null}
+            </section>
+          </div>
+        </div>
 
-      {enviando ? <Cargando texto="Creando matricula y plan de pago..." /> : null}
+      {enviando ? <Cargando texto="Creando matrícula y plan de pago…" /> : null}
 
       {confirmando ? (
         <Confirmacion
-          titulo="Confirmar la matricula"
-          mensaje={`Se creara la matricula con ${fechasValidas()?.length ?? 0} cuotas. Esta operacion genera las obligaciones de pago.`}
-          textoConfirmar="Si, crear"
+          titulo="Confirmar la matrícula"
+          mensaje={`Se creará la matrícula con ${totalCuotas} cuota${totalCuotas !== 1 ? 's' : ''}. Esta operación genera las obligaciones de pago.`}
+          textoConfirmar="Sí, crear"
           onConfirmar={crear}
           onCancelar={() => setConfirmando(false)}
           cargando={enviando}
@@ -428,13 +557,16 @@ export default function NuevaMatriculaPage() {
 
       {resultado ? (
         <section className="matricula__resultado">
-          <h3>Matricula creada</h3>
+          <h3>Matrícula creada</h3>
           <p>
-            Matricula <strong>#{resultado.matricula.id}</strong> — plan{' '}
+            Matrícula <strong>#{resultado.matricula.id}</strong> — plan{' '}
             <strong>#{resultado.plan_pago_id}</strong> con {resultado.total_cuotas} cuotas.
           </p>
+          <Boton tipo="secundario" icono="payments" onClick={() => navegar('/cobro')}>
+            Registrar cobro para esta matrícula
+          </Boton>
         </section>
       ) : null}
-    </div>
+    </>
   );
 }

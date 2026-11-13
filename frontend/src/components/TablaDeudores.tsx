@@ -31,6 +31,8 @@ export interface Deudor {
   anio_lectivo: string;
   saldo_total: string;
   cuotas_pendientes: number;
+  /** Conceptos pendientes: "Mensualidad", "Uniforme", "Matricula". */
+  conceptos?: string;
   proximo_vencimiento: string | null;
   moneda: string | null;
 }
@@ -230,6 +232,12 @@ export default function TablaDeudores({
                           <span className="tabla__sub">
                             {f.cuotas_pendientes} cuota{f.cuotas_pendientes === 1 ? '' : 's'} por cobrar
                           </span>
+                          {/* Que se esta cobrando: mensualidades, matricula o
+                              uniforme. Sin esto, dos filas de la misma familia
+                              (una por ano) se ven iguales. */}
+                          {f.conceptos ? (
+                            <span className="tabla__sub tabla__sub--concepto">{f.conceptos}</span>
+                          ) : null}
                         </>
                       ) : (
                         <Etiqueta tipo="exito" icono="check_circle">
