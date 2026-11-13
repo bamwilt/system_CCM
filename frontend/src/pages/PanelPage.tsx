@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useSesion } from '../context/SesionContexto';
 import { Importe, Mensaje, Tabla } from '../components/Comunes';
 import { useEffect, useState } from 'react';
@@ -30,7 +31,7 @@ export default function PanelPage() {
     }
     listar<FilaRecaudacion>('/reportes/recaudacion?limite=7')
       .then((r) => setRecaudacion(r.filas))
-      .catch((e) => setError(typeof e?.message === 'string' ? e.message : 'No se pudo cargar la recaudacion.'));
+      .catch((e) => setError(typeof e?.message === 'string' ? e.message : 'No se pudo cargar la recaudación.'));
   }, [puede]);
 
   return (
@@ -39,28 +40,28 @@ export default function PanelPage() {
 
       {sesion ? (
         <p className="panel__usuario">
-          Sesion iniciada como <strong>{sesion.email}</strong>.
+          Sesión iniciada como <strong>{sesion.email}</strong>.
         </p>
       ) : null}
 
       <nav className="panel__accesos" aria-label="Accesos rapidos">
-        {puede('estudiantes:read') ? <a href="/estudiantes">Estudiantes</a> : null}
-        {puede('tutores:manage') ? <a href="/tutores">Tutores</a> : null}
-        {puede('matriculas:manage') ? <a href="/matriculas">Matriculas</a> : null}
-        {puede('pagos:manage') ? <a href="/cobro">Registrar cobro</a> : null}
-        {puede('reportes:read') ? <a href="/reportes">Reportes</a> : null}
+        {puede('estudiantes:read') ? <Link to="/estudiantes">Estudiantes</Link> : null}
+        {puede('tutores:manage') ? <Link to="/tutores">Tutores</Link> : null}
+        {puede('matriculas:manage') ? <Link to="/matriculas">Matrículas</Link> : null}
+        {puede('pagos:manage') ? <Link to="/cobro">Registrar cobro</Link> : null}
+        {puede('reportes:read') ? <Link to="/reportes">Reportes</Link> : null}
       </nav>
 
       {error ? <Mensaje tipo="error">{error}</Mensaje> : null}
 
       {puede('reportes:read') ? (
         <section className="panel__seccion">
-          <h3>Recaudacion reciente</h3>
+          <h3>Recaudación reciente</h3>
           <Tabla<FilaRecaudacion>
             filas={recaudacion}
             clave={(f) => f.dia}
             columnas={[
-              { encabezado: 'Dia', celda: (f) => f.dia },
+              { encabezado: 'Día', celda: (f) => f.dia },
               { encabezado: 'Operaciones', celda: (f) => f.operaciones },
               { encabezado: 'Total', celda: (f) => <Importe valor={f.total} /> },
               {

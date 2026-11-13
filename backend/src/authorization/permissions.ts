@@ -16,6 +16,9 @@ export const AUTH_PERMISSIONS = {
   PAGOS_MANAGE: 'pagos:manage',
   PAGOS_READ: 'pagos:read',
   REPORTES_READ: 'reportes:read',
+  // Fase 10 (auditoria y controles de seguridad). Solo lectura; los registros
+  // no son modificables por usuarios ordinarios.
+  AUDITORIA_READ: 'auditoria:leer',
 } as const;
 
 export type AuthPermission = (typeof AUTH_PERMISSIONS)[keyof typeof AUTH_PERMISSIONS];
@@ -31,6 +34,7 @@ export const AUTH_PERMISSION_CODES: readonly AuthPermission[] = [
   AUTH_PERMISSIONS.PAGOS_MANAGE,
   AUTH_PERMISSIONS.PAGOS_READ,
   AUTH_PERMISSIONS.REPORTES_READ,
+  AUTH_PERMISSIONS.AUDITORIA_READ,
 ];
 
 export const AUTH_MANAGE_PERMISSIONS = AUTH_PERMISSION_CODES;

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useSesion } from '../context/SesionContexto';
+import { LogoSvg } from '../components/IconosSvg';
 import { Boton, Campo, Cargando, Mensaje } from '../components/Comunes';
 
 /**
@@ -28,6 +29,7 @@ export default function LoginPage() {
   return (
     <div className="login">
       <div className="login__panel">
+        <LogoSvg tamano={56} titulo="SGPM" />
         <h1>SGPM</h1>
         <p>
           Sistema de Gestión de Pagos y Matrículas. Centraliza matrículas, planes de pago, cobros en

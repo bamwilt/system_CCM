@@ -1,0 +1,14 @@
+[Unit]
+Description=SGPM Backend
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=sgpm
+WorkingDirectory=/opt/sgpm/backend
+EnvironmentFile=/opt/sgpm/.env
+ExecStart=/usr/bin/node /opt/sgpm/backend/dist/index.js
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
