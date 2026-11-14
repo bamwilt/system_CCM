@@ -89,6 +89,9 @@ export default function NuevaMatriculaPage() {
   // veces (una cuota por fecha); la matricula y el uniforme se cobran UNA sola
   // vez. La interfaz es la misma, la validacion no.
   const esRecurrente = tarifaElegida ? /mensual/i.test(tarifaElegida.concepto) : false;
+  // Mensualidades (varias cuotas) separadas de pagos únicos (una sola).
+  const tarifasMensuales = tarifas.filter((t) => /mensual/i.test(t.concepto));
+  const tarifasUnicas = tarifas.filter((t) => !/mensual/i.test(t.concepto));
   const montoPorCuota = tarifaElegida ? conMoneda(tarifaElegida.monto, tarifaElegida.moneda) : '—';
   // Año (número) seleccionado: la tabla lo usa para saber si el estudiante ya
   // cursa ese año, en cuyo caso no se le puede volver a matricular.
@@ -384,17 +387,35 @@ export default function NuevaMatriculaPage() {
                   <Campo
                     etiqueta="Tarifa"
                     identificador="tarifa"
-                    ayuda="El monto de la tarifa es el de CADA cuota."
+                    ayuda={
+                      esRecurrente
+                        ? 'Mensualidad: el monto es el de CADA cuota.'
+                        : tarifaElegida
+                          ? 'Pago único (matrícula o uniforme): se cobra UNA sola vez.'
+                          : 'Elija qué va a cobrar: mensualidades o un pago único.'
+                    }
                   >
                     <select id="tarifa" value={tarifaId} onChange={(e) => setTarifaId(e.target.value)}>
                       <option value="">
                         {anioId === '' ? 'Primero elija el año' : 'Seleccione la tarifa'}
                       </option>
-                      {tarifas.map((t) => (
-                        <option key={t.id} value={String(t.id)}>
-                          {t.concepto} — <Importe valor={t.monto} moneda={t.moneda} />
-                        </option>
-                      ))}
+                      {/* Separado por naturaleza: mensualidades (varias cuotas) de
+                          pagos únicos (una sola cuota). Antes salían mezclados en
+                          una sola lista y se elegía sin saber qué implicaba. */}
+                      <optgroup label="Mensualidades — una cuota por fecha">
+                        {tarifasMensuales.map((t) => (
+                          <option key={t.id} value={String(t.id)}>
+                            {t.concepto} — <Importe valor={t.monto} moneda={t.moneda} />
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Pagos únicos — una sola fecha">
+                        {tarifasUnicas.map((t) => (
+                          <option key={t.id} value={String(t.id)}>
+                            {t.concepto} — <Importe valor={t.monto} moneda={t.moneda} />
+                          </option>
+                        ))}
+                      </optgroup>
                     </select>
                   </Campo>
 
