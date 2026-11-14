@@ -29,6 +29,8 @@ export interface EstudianteElegible {
   grado?: string | null;
   /** Año de su matrícula más reciente; null si nunca se ha matriculado. */
   ultimo_anio?: number | null;
+  /** Años en los que ya tiene matrícula (puede ser más de uno). */
+  anios_matriculados?: number[];
   tiene_matricula?: boolean;
 }
 
@@ -241,9 +243,13 @@ export default function TablaEstudiantes({
             <tbody>
               {visibles.map((f) => {
                 const elegida = f.id === seleccionadoId;
-                // Mismo año lectivo: ya lo cursa, no se le puede volver a
-                // matricular. Otro año (o ninguna): sí se le puede matricular.
-                const mismoAnio = anioActivo !== null && f.ultimo_anio === anioActivo;
+                // Mismo año lectivo: ya tiene matrícula en ESE año, así que no se
+                // le puede volver a matricular (el par estudiante+año es único).
+                // Antes se comparaba solo con el año de la última matrícula, y un
+                // estudiante con 2026 y 2027 parecía elegible para 2026: el
+                // backend lo rechazaba con 409 después de llenar el formulario.
+                const anios = f.anios_matriculados ?? [];
+                const mismoAnio = anioActivo !== null && anios.includes(anioActivo);
                 return (
                   <tr key={f.id} className={elegida ? 'tabla__fila--elegida' : undefined}>
                     <td className="tabla__col-estudiante">
@@ -266,9 +272,9 @@ export default function TablaEstudiantes({
                         <Etiqueta tipo="aviso" icono="warning">
                           Cursa {anioActivo}
                         </Etiqueta>
-                      ) : f.tiene_matricula ? (
+                      ) : anios.length > 0 ? (
                         <Etiqueta tipo="info" icono="badge">
-                          Matriculado en {f.ultimo_anio}
+                          Matriculado en {anios.join(', ')}
                         </Etiqueta>
                       ) : (
                         <Etiqueta tipo="exito" icono="add_circle">

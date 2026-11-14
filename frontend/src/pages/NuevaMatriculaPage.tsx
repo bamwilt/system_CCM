@@ -328,8 +328,8 @@ export default function NuevaMatriculaPage() {
                     </div>
                   </div>
                   <Etiqueta tipo="info" icono="badge">
-                    {estudianteElegido.tiene_matricula
-                      ? `Matriculado en ${estudianteElegido.ultimo_anio}`
+                    {(estudianteElegido.anios_matriculados?.length ?? 0) > 0
+                      ? `Matriculado en ${(estudianteElegido.anios_matriculados ?? []).join(', ')}`
                       : 'Sin matrícula'}
                   </Etiqueta>
                   <Boton tipo="fantasma" icono="close" onClick={deseleccionar}>

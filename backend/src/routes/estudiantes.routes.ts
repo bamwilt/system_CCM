@@ -143,11 +143,20 @@ router.get(
         activo: boolean;
         grado: string | null;
         ultimo_anio: number | null;
+        /** Años lectivos en los que YA tiene matrícula (puede ser más de uno). */
+        anios_matriculados: number[] | null;
         tiene_matricula: boolean;
       }>(
         `SELECT e.id, e.nombres, e.apellidos, e.documento_identidad, e.email, e.telefono, e.activo,
                 ult.grado, ult.ultimo_anio,
-                EXISTS (SELECT 1 FROM matriculas mm WHERE mm.estudiante_id = e.id) AS tiene_matricula
+                ARRAY(
+                  SELECT al.anio
+                    FROM matriculas mm
+                    JOIN anio_lectivo al ON al.id = mm.anio_lectivo_id
+                   WHERE mm.estudiante_id = e.id
+                   ORDER BY al.anio DESC
+                ) AS anios_matriculados,
+                EXISTS (SELECT 1 FROM matriculas mx WHERE mx.estudiante_id = e.id) AS tiene_matricula
            FROM estudiantes e
            LEFT JOIN LATERAL (
              SELECT g.nombre AS grado, al.anio AS ultimo_anio
@@ -174,6 +183,7 @@ router.get(
         activo: row.activo,
         grado: row.grado,
         ultimo_anio: row.ultimo_anio,
+        anios_matriculados: row.anios_matriculados ?? [],
         tiene_matricula: row.tiene_matricula,
       }));
 
