@@ -82,7 +82,14 @@ export function fechaHora(iso: string): string {
   if (!iso) {
     return '—';
   }
-  const fecha = new Date(iso);
+  // PostgreSQL manda "2026-11-13 23:34:16.770142-05" (espacio, no "T", y
+  // microsegundos que JavaScript no entiende). Se normaliza a ISO para que
+  // Date respete el offset en lugar de asumir hora local.
+  const normalizado = iso
+    .trim()
+    .replace(' ', 'T')
+    .replace(/(\.\d{3})\d+/, '$1');
+  const fecha = new Date(normalizado);
   if (Number.isNaN(fecha.getTime())) {
     return iso;
   }
@@ -118,6 +125,22 @@ export function tiempoActivo(segundos: number): string {
   const horas = Math.floor(minutos / 60);
   const resto = minutos % 60;
   return resto === 0 ? `${horas} h` : `${horas} h ${String(resto).padStart(2, '0')} min`;
+}
+
+/**
+ * Fecha de HOY en la zona horaria de la persona, en formato YYYY-MM-DD.
+ *
+ * `new Date().toISOString().slice(0, 10)` devuelve la fecha EN UTC: en una
+ * zona detras de UTC (Mexico, Centroamerica) a partir de las 18:00 locales
+ * entrega el dia SIGUIENTE, y delante de UTC entrega el anterior. Con esa
+ * fecha el backend rechazaba el cobro por caer fuera del ano lectivo.
+ */
+export function hoyLocal(): string {
+  const ahora = new Date();
+  const año = ahora.getFullYear();
+  const mes = String(ahora.getMonth() + 1).padStart(2, '0');
+  const dia = String(ahora.getDate()).padStart(2, '0');
+  return `${año}-${mes}-${dia}`;
 }
 
 /** Iniciales para el avatar de la lista de busqueda. */

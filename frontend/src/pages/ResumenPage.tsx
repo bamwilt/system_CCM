@@ -22,7 +22,7 @@ import {
   PaletaComandos,
 } from '../components/Ayuda';
 import { listar, mensajeDeError } from '../services/api';
-import { conMoneda, formatearImporte, simboloMoneda } from '../utils/formato';
+import { conMoneda, formatearImporte, hoyLocal, simboloMoneda } from '../utils/formato';
 
 /**
  * ============================================================================
@@ -64,7 +64,9 @@ interface FilaPago {
 }
 
 function hoy(): string {
-  return new Date().toISOString().slice(0, 10);
+  // Fecha local, no UTC: con UTC la portada mostraba el dia siguiente a
+  // partir de las 18:00 en zonas detras de UTC (ver hoyLocal en formato.ts).
+  return hoyLocal();
 }
 
 /** Contra el total de cuotas del plan, para la barra de avance. */

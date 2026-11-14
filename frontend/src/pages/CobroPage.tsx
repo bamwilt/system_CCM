@@ -14,7 +14,7 @@ import {
 } from '../components/Comunes';
 import { listar, mensajeDeError, mutationHeaders } from '../services/api';
 import api from '../services/api';
-import { conMoneda, fechaCorta, formatearImporte, iniciales, simboloMoneda } from '../utils/formato';
+import { conMoneda, fechaCorta, fechaHora, formatearImporte, hoyLocal, iniciales, simboloMoneda } from '../utils/formato';
 import TablaDeudores, { type Deudor } from '../components/TablaDeudores';
 
 /**
@@ -72,7 +72,7 @@ export default function CobroPage() {
 
   // --- Formulario ---------------------------------------------------------
   const [monto, setMonto] = useState('');
-  const [fechaEfectiva, setFechaEfectiva] = useState(new Date().toISOString().slice(0, 10));
+  const [fechaEfectiva, setFechaEfectiva] = useState(hoyLocal());
   const [medio, setMedio] = useState('EFECTIVO');
   const [referencia, setReferencia] = useState('');
   const [clave, setClave] = useState('');
@@ -633,10 +633,8 @@ function UltimosCobros() {
                 <span className="tabla__sub">matrícula #{f.matricula_id ?? '—'}</span>
               </td>
               <td>
-                {fechaCorta(f.fecha.slice(0, 10))}
-                <span className="tabla__sub">
-                  {f.fecha.slice(11, 19)} h · {f.medio}
-                </span>
+                {fechaHora(f.fecha)}
+                <span className="tabla__sub">{f.medio}</span>
               </td>
               <td className="tabla__numerico">{formatearImporte(f.monto)}</td>
               <td>
